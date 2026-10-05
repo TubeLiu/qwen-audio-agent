@@ -558,6 +558,19 @@ export function createRealtimeSessionRuntime({
     if (isSleepActivityEvent(event)) sleepController?.recordActivity()
     if (isResponseActivityEvent(event)) presentationRuntime.begin(event)
     if (inputs.handleProviderEvent(event)) return
+    if (event.type === 'response.audio.failed') {
+      const responseId = realtimeResponseId(event)
+      const context = presentationRuntime.get(responseId)
+      if (!responseId || !context || context.suppressed) return
+      presentationRuntime.markSpeechFailure(responseId)
+      // Text generation and completed external work remain valid. A failed
+      // speech segment must be visible without ending the response early or
+      // replaying work; its final response.done still drains partial playback.
+      emit({ type: GatewayServerEvent.ERROR, code: 'speech_synthesis_failed',
+        message: '语音播报未能完成，收到的音频可能只有一部分。请查看屏幕全文。',
+        responseId, ...presentationRuntime.publicContext(context) })
+      return
+    }
     if (event.type === 'response.done') {
       const responseId = realtimeResponseId(event)
       const context = presentationRuntime.get(responseId)

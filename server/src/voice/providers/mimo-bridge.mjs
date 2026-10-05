@@ -3,10 +3,10 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pcm16ToWav, decodeBase64Audio, redact, miMoChatOptions } from './mimo-audio.mjs';
 import { explicitFeishuObjective } from './mimo-feishu-policy.mjs';
+import { miMoSpeechSegments, MIMO_TTS_SEGMENT_AUDIO_BYTES } from './mimo-speech-segments.mjs';
 
 const id = prefix => `${prefix}_${randomUUID().replaceAll('-', '')}`;
 const MAX_INPUT_BYTES = 16000 * 2 * 30;
-const MAX_OUTPUT_BYTES = 24000 * 2 * 60;
 const PRE_ROLL_BYTES = 16000 * 2 * 0.12;
 // Native AudioWorklet input arrives once per 128 source samples, even after
 // resampling. Bound PCM throughput separately from that small-packet cadence.
@@ -45,8 +45,9 @@ export async function* parseMiMoSse(body) {
 }
 
 export class MiMoBridgeSession {
-  constructor({ config, send, fetcher = fetch, paced = true }) {
+  constructor({ config, send, fetcher = fetch, paced = true, clock = Date.now, sleep = delay }) {
     this.config = config; this.sendFrame = send; this.fetcher = fetcher; this.paced = paced;
+    this.audioClock = clock; this.audioSleep = sleep;
     this.settings = { tools: [], turn_detection: { silence_duration_ms: 750, threshold: 0.018 } };
     this.history = []; this.calls = new Set(); this.muted = false; this.closed = false;
     this.audioChunks = []; this.audioBytes = 0; this.preRoll = []; this.preRollBytes = 0; this.speechId = null; this.voicedMs = 0; this.sampleMs = 0;
@@ -261,10 +262,11 @@ export class MiMoBridgeSession {
         this.emit({ type: 'response.text.done', response_id: active.id, item_id: itemId, output_index: 0, content_index: 0, text: content });
         if (!calls.length && this.config.ttsBaseUrl && this.config.ttsApiKey && this.config.ttsModel && (options.modalities || this.settings.modalities || ['text', 'audio']).includes('audio')) {
           this.emit({ type: 'response.audio_transcript.delta', response_id: active.id, item_id: itemId, content_index: 0, delta: content });
-          try { await this.speak(content, active, itemId, current); }
+          let speechComplete = false;
+          try { await this.speak(content, active, itemId, current); speechComplete = true; }
           catch (error) { if (current()) this.emit({ type: 'mimo.speech_unavailable', message: redact(this.config, error.message), response_id: active.id }); }
           if (!current()) return;
-          this.emit({ type: 'response.audio_transcript.done', response_id: active.id, item_id: itemId, content_index: 0, transcript: content });
+          if (speechComplete) this.emit({ type: 'response.audio_transcript.done', response_id: active.id, item_id: itemId, content_index: 0, transcript: content });
         }
         output.push({ id: itemId, type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'text', text: content }] });
       }
@@ -274,42 +276,55 @@ export class MiMoBridgeSession {
     } finally { if (this.active === active) this.active = null; }
   }
   async speak(text, active, itemId, current) {
-    const chars = Array.from(text), spoken = chars.length > 230 ? `${chars.slice(0, 215).join('')}。完整内容请查看屏幕。` : text;
-    // Small request segments bound both upstream work and card playback memory.
-    const pieces = spoken.match(/[\s\S]{1,110}/gu) || [];
-    let total = 0, startedAt = null, remainder = Buffer.alloc(0);
+    const pieces = miMoSpeechSegments(text);
+    // The text limit bounds the number of requests. PCM memory/time bounds are
+    // per small segment, so a complete response may legitimately exceed 60s.
+    let total = 0, segmentBytes = 0, nextAudioAt = 0, remainder = Buffer.alloc(0);
     const deliver = async bytes => {
       if (remainder.length) bytes = Buffer.concat([remainder, bytes]);
       remainder = bytes.length % 2 ? bytes.subarray(bytes.length - 1) : Buffer.alloc(0);
       bytes = bytes.subarray(0, bytes.length - remainder.length);
-      if (total + bytes.length > MAX_OUTPUT_BYTES) throw new Error('播报超过 60 秒，请查看屏幕完整结果。');
+      if (segmentBytes + bytes.length > MIMO_TTS_SEGMENT_AUDIO_BYTES) throw new Error('单段语音超过 60 秒的安全上限。');
       for (let offset = 0; offset < bytes.length; offset += 960) {
         if (!current()) return;
-        startedAt ??= Date.now();
-        if (this.paced) { const wait = startedAt + total / 48 - Date.now(); if (wait > 0) await delay(wait, undefined, { signal: active.controller.signal }); }
+        if (this.paced) { const wait = nextAudioAt - this.audioClock(); if (wait > 0) await this.audioSleep(wait, undefined, { signal: active.controller.signal }); }
         if (!current()) return;
-        const chunk = bytes.subarray(offset, offset + 960); total += chunk.length;
+        const chunk = bytes.subarray(offset, offset + 960); total += chunk.length; segmentBytes += chunk.length;
+        // Reset after an upstream gap: never burst old deadlines to catch up.
+        nextAudioAt = this.audioClock() + chunk.length / 48;
         this.emit({ type: 'response.audio.delta', response_id: active.id, item_id: itemId, output_index: 0, content_index: 0, delta: chunk.toString('base64') });
       }
     };
-    for (const piece of pieces) {
-      if (!current()) return;
-      const response = await this.upstream(this.config.ttsBaseUrl, this.config.ttsApiKey, '/chat/completions', { model: this.config.ttsModel, messages: [{ role: 'assistant', content: piece }], audio: { format: 'pcm16', voice: this.settings.voice || this.config.ttsVoice || 'mimo_default' }, stream: true }, active.controller);
-      if ((response.headers.get('content-type') || '').includes('text/event-stream')) {
-        for await (const frame of parseMiMoSse(response.body)) {
-          if (!current()) return;
-          if (frame.error) throw new Error(frame.error.message || '语音合成失败。');
-          const encoded = frame.choices?.[0]?.delta?.audio?.data || frame.choices?.[0]?.message?.audio?.data;
-          if (encoded) await deliver(decodeBase64Audio(encoded));
+    let segment = 0;
+    try {
+      for (const piece of pieces) {
+        if (!current()) return;
+        if (!piece.trim()) continue;
+        segment++; segmentBytes = 0; remainder = Buffer.alloc(0);
+        const response = await this.upstream(this.config.ttsBaseUrl, this.config.ttsApiKey, '/chat/completions', { model: this.config.ttsModel, messages: [{ role: 'assistant', content: piece }], audio: { format: 'pcm16', voice: this.settings.voice || this.config.ttsVoice || 'mimo_default' }, stream: true }, active.controller);
+        if (!current()) return;
+        if ((response.headers.get('content-type') || '').includes('text/event-stream')) {
+          for await (const frame of parseMiMoSse(response.body)) {
+            if (!current()) return;
+            if (frame.error) throw new Error(frame.error.message || '语音合成失败。');
+            const encoded = frame.choices?.[0]?.delta?.audio?.data || frame.choices?.[0]?.message?.audio?.data;
+            if (encoded) await deliver(decodeBase64Audio(encoded));
+          }
+        } else {
+          const result = JSON.parse((await responseBytes(response, 8 * 1024 * 1024)).toString('utf8'));
+          await deliver(decodeBase64Audio(result.choices?.[0]?.message?.audio?.data));
         }
-      } else {
-        const result = JSON.parse((await responseBytes(response, 8 * 1024 * 1024)).toString('utf8'));
-        await deliver(decodeBase64Audio(result.choices?.[0]?.message?.audio?.data));
+        if (remainder.length) throw new Error('流式 PCM 包含不完整采样。');
+        if (!segmentBytes) throw new Error('这段语音合成没有返回音频。');
       }
+      if (!total) throw new Error('语音合成没有返回音频。');
+    } catch (error) {
+      throw new Error(`语音播报在第 ${segment || 1} 段中断：${error.message}`);
+    } finally {
+      // One response remains one playback sequence across all segments. Close
+      // any emitted partial PCM on failure; cancellation owns its own lifecycle.
+      if (current() && total) this.emit({ type: 'response.audio.done', response_id: active.id, item_id: itemId, content_index: 0 });
     }
-    if (remainder.length) throw new Error('流式 PCM 包含不完整采样。');
-    if (!total) throw new Error('语音合成没有返回音频。');
-    if (current()) this.emit({ type: 'response.audio.done', response_id: active.id, item_id: itemId, content_index: 0 });
   }
   close() { this.cancelResponse(); this.resetAudio(); this.closed = true; this.history = []; this.calls.clear(); }
 }

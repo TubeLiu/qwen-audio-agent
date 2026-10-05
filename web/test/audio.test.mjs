@@ -233,3 +233,64 @@ test('remote PCM playback flushes a short response when it finishes', () => {
   queue.finish()
   assert.equal(flushed.length, 1)
 })
+
+test('local and remote playback retain every sample of a response longer than sixty seconds', () => {
+  const sampleRate = 24000
+  for (const remote of [false, true]) {
+    const delivered = []
+    let totalSamples = 0
+    const queue = createPcmPlaybackQueue({ remote, onFlush: items => {
+      for (const item of items) {
+        assert.equal(item.responseId, 'long-response')
+        totalSamples += item.samples.length
+        for (let offset = 0; offset < item.samples.length; offset += sampleRate) {
+          delivered.push(item.samples[offset])
+        }
+      }
+    } })
+    for (let second = 0; second < 150; second++) {
+      const samples = new Float32Array(sampleRate).fill(second / 256)
+      queue.push({ samples, sampleRate, responseId: 'long-response', duration: 1 }, { timelineAheadSeconds: second })
+    }
+    queue.finish()
+    assert.equal(totalSamples, 150 * sampleRate)
+    assert.deepEqual(delivered, Array.from({ length: 150 }, (_, index) => index / 256))
+    assert.deepEqual(queue.responseIds(), [])
+  }
+})
+
+test('a long inter-segment pause preserves the response and final done flushes its short tail', () => {
+  let clock = 0
+  const timers = new Map()
+  const flushed = []
+  const queue = createPcmPlaybackQueue({ remote: true,
+    onFlush: items => flushed.push(...items),
+    schedule: (callback, delay) => {
+      const timer = { at: clock + delay, callback }
+      timers.set(timer, timer)
+      return timer
+    },
+    cancel: timer => timers.delete(timer),
+  })
+  const advance = milliseconds => {
+    clock += milliseconds
+    for (const timer of [...timers.values()]) {
+      if (timer.at <= clock) { timers.delete(timer); timer.callback() }
+    }
+  }
+  const chunk = (value, length) => ({ samples: new Float32Array(length).fill(value),
+    sampleRate: 24000, responseId: 'segmented-response', duration: length / 24000 })
+  queue.push(chunk(0.125, 4800))
+  queue.push(chunk(0.25, 4800))
+  assert.equal(flushed.length, 1)
+  advance(120000)
+  queue.push(chunk(0.375, 1920), { timelineAheadSeconds: 0 })
+  advance(120000)
+  assert.deepEqual(queue.responseIds(), ['segmented-response'])
+  assert.equal(flushed.length, 1, 'the last short segment is still awaiting more PCM or final audio.done')
+  queue.finish()
+  assert.equal(flushed.reduce((sum, item) => sum + item.samples.length, 0), 11520)
+  assert.ok(flushed.every(item => item.responseId === 'segmented-response'))
+  assert.equal(flushed.at(-1).samples.at(-1), 0.375)
+  assert.equal(timers.size, 0)
+})

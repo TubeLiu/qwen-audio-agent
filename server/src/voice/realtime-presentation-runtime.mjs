@@ -107,6 +107,11 @@ export class RealtimePresentationRuntime {
     return this.contexts.get(id)
   }
 
+  markSpeechFailure(id) {
+    const context = this.contexts.get(id)
+    if (context && !context.suppressed) context.speechFailed = true
+  }
+
   entries() {
     return this.contexts.entries()
   }
@@ -389,14 +394,14 @@ export class RealtimePresentationRuntime {
       this.#finishContextIfComplete(id, context)
     } else {
       const nonVoiceClient = this.getNonVoiceClient()
-      const completedNonVoiceAnnouncement = (
+      const completedTextAnnouncement = (
         context?.origin === 'announcement'
-        && nonVoiceClient
+        && (nonVoiceClient || context.speechFailed)
         && !failed
       )
-      const completedNonVoiceTaskNotification = (
+      const completedTextTaskNotification = (
         context?.consumesTaskNotification
-        && nonVoiceClient
+        && (nonVoiceClient || context.speechFailed)
         && !failed
       )
       if (
@@ -404,18 +409,18 @@ export class RealtimePresentationRuntime {
         && !failed
         && (
           context.origin !== 'announcement'
-          || completedNonVoiceAnnouncement
+          || completedTextAnnouncement
         )
       ) {
         this.#flushPendingTranscripts(id, context)
       }
       if (context?.origin === 'announcement') {
-        if (completedNonVoiceAnnouncement) {
+        if (completedTextAnnouncement) {
           this.announcements.confirmMany(contextTaskIds(context))
         } else {
           this.announcements.retryMany(contextTaskIds(context))
         }
-      } else if (completedNonVoiceTaskNotification) {
+      } else if (completedTextTaskNotification) {
         this.announcements.confirmMany(contextTaskIds(context))
       }
       this.contexts.delete(id)

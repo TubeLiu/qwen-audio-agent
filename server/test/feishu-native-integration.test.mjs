@@ -44,7 +44,7 @@ function nativeBackend(calls) {
   }
 }
 
-async function fixture({ write = false, defaultBackendDisabled = false, restoredTasks = null, voiceOutput = false } = {}) {
+async function fixture({ write = false, defaultBackendDisabled = false, restoredTasks = null, voiceOutput = false, speechFailure = false } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'native-feishu-'))
   const previousBackendProtocol = defaults.agentProtocol
   if (defaultBackendDisabled) defaults.agentProtocol = ''
@@ -70,7 +70,8 @@ async function fixture({ write = false, defaultBackendDisabled = false, restored
     const body = JSON.parse(init.body); requests.push(body)
     if (body.response_format) return jsonReply(JSON.stringify(plan))
     if (body.model === config.mimoTtsModel) {
-      const frame = `data: ${JSON.stringify({ choices: [{ delta: { audio: { data: Buffer.alloc(960).toString('base64') } } }] })}\n\ndata: [DONE]\n\n`
+      const frame = (speechFailure === 'empty' ? '' : `data: ${JSON.stringify({ choices: [{ delta: { audio: { data: Buffer.alloc(960).toString('base64') } } }] })}\n\n`)
+        + (speechFailure ? `data: ${JSON.stringify({ error: { message: 'mock speech segment failed' } })}\n\n` : 'data: [DONE]\n\n')
       return new Response(frame, { headers: { 'Content-Type': 'text/event-stream' } })
     }
     if (!body.tools && body.messages[0].content.includes('这是飞书写入操作等待本次按钮确认的通知')) {
@@ -430,3 +431,25 @@ test('actual native Feishu authorization notice uses this application button ins
     await f.application.services.taskOperations.cancel(task.id, owner)
   } finally { await f.close() }
 })
+
+for (const speechFailure of [true, 'empty']) {
+test(`a genuine MiMo ${speechFailure === true ? 'partial' : 'zero PCM'} TTS failure reaches the SDK client while its Feishu result finishes without replay`, async () => {
+  const f = await fixture({ defaultBackendDisabled: true, voiceOutput: true, speechFailure })
+  try {
+    f.client.send({ type: 'text.message', text: f.text })
+    const completed = await until(() => f.application.services.taskManager.list(owner).find(task => task.kind === 'feishu' && task.status === 'completed'))
+    const announcement = await until(() => f.events.find(event => event.type === 'response.started' && event.origin === 'announcement'
+      && (event.taskId === completed.id || event.taskIds?.includes(completed.id))))
+    const notice = await until(() => f.events.find(event => event.type === 'error' && event.code === 'speech_synthesis_failed'
+      && event.responseId === announcement.responseId))
+    assert.equal(notice.taskId, completed.id); assert.equal(notice.turnId, announcement.turnId)
+    assert.match(notice.message, /可能只有一部分/); assert.doesNotMatch(notice.message, /mock speech segment failed/)
+    await until(() => f.events.some(event => event.type === 'audio.done' && event.responseId === announcement.responseId))
+    await until(() => f.application.services.taskManager.get(completed.id, owner).notificationStatus === 'delivered')
+    assert.ok(f.events.some(event => event.type === 'transcript.final' && event.responseId === announcement.responseId && event.content.includes('准备评审')))
+    assert.equal(f.cliCalls.length, 1); assert.equal(f.work.pending(owner).length, 0)
+    if (speechFailure === 'empty') assert.equal(f.events.some(event => event.type === 'audio.delta' && event.responseId === announcement.responseId), false)
+    assert.equal(f.client.ready, true, 'speech failure does not disconnect the conversation or discard the result')
+  } finally { await f.close() }
+})
+}

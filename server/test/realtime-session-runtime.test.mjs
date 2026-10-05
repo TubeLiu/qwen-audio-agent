@@ -127,6 +127,36 @@ test('frontend runtime chats without backend, socket, handshake or provider netw
   assert.equal(h.manager.list({}).length, 0)
 })
 
+test('partial speech failure is visible and correlated without losing text, blocking playback or replaying work', async t => {
+  const h = harness(t, { backend: false })
+  const f = await h.connect({ inputEnabled: false })
+  h.send({ type: Input.TEXT_MESSAGE, text: 'mock long answer' })
+  await until(() => f.inputs.length === 1)
+  const context = { ...f.inputs[0].context, taskId: 'task_completed', origin: 'announcement' }
+  f.emit({ type: 'response.created', response: { id: 'partial-speech' }, __voiceContext: context, __voiceOrigin: 'announcement' })
+  f.emit({ type: 'response.text.done', response_id: 'partial-speech', text: 'The complete answer stays on screen.' })
+  f.emit({ type: 'response.audio.delta', response_id: 'partial-speech', delta: Buffer.alloc(960).toString('base64') })
+  h.send({ type: Input.PLAYBACK_STARTED, responseId: 'partial-speech' })
+  const initialCancels = f.cancels
+  f.emit({ type: 'response.audio.failed', response_id: 'partial-speech', message: 'private-provider-detail' })
+  const notice = h.events.find(event => event.code === 'speech_synthesis_failed')
+  assert.equal(notice.type, 'error'); assert.equal(notice.responseId, 'partial-speech')
+  assert.equal(notice.taskId, context.taskId); assert.equal(notice.turnId, context.turnId)
+  assert.match(notice.message, /可能只有一部分/); assert.match(notice.message, /屏幕全文/)
+  assert.doesNotMatch(JSON.stringify(notice), /private-provider-detail/)
+  assert.equal(f.ready, true); assert.equal(f.cancels, initialCancels)
+  f.emit({ type: 'response.done', response: { id: 'partial-speech', status: 'completed' } })
+  assert.ok(h.events.some(event => event.type === 'audio.done' && event.responseId === 'partial-speech'))
+  h.send({ type: Input.PLAYBACK_ENDED, responseId: 'partial-speech' })
+  assert.ok(h.events.some(event => event.type === 'transcript.final' && event.content === 'The complete answer stays on screen.'))
+  assert.equal(h.manager.list({}).length, 0)
+  h.send({ type: Input.TEXT_MESSAGE, text: 'continue after synthesis failure' })
+  await until(() => f.inputs.length === 2)
+  const notices = h.events.filter(event => event.code === 'speech_synthesis_failed').length
+  f.emit({ type: 'response.audio.failed', response_id: 'unknown-old-response' })
+  assert.equal(h.events.filter(event => event.code === 'speech_synthesis_failed').length, notices)
+})
+
 test('spawn receipt is asynchronous; ongoing work does not prevent further chat, interruption or close', async t => {
   const h = harness(t)
   const f = await h.connect()

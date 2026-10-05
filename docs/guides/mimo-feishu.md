@@ -28,6 +28,14 @@ streaming TTS. It supports microphone mute, interruption and result speech.
 It does not expose image/video input or claim end-to-end duplex model support.
 The upstream providers continue to expose their own supported capabilities.
 
+MiMo synthesizes the complete reply in ordered segments; there is no 230-character
+or 60-second cutoff for the whole utterance. Segments prefer sentence boundaries,
+with at most 110 Unicode code points, a 90-second request deadline and a 60-second
+audio bound per segment. The existing 16,000-character reply limit still applies.
+Audio completes only after every segment arrives, and interruption cancels pending
+work. A speech failure is shown explicitly while the full text remains available.
+The wire format follows the [official MiMo speech synthesis guide](https://mimo.mi.com/docs/en-US/quick-start/usage-guide/audio/speech-synthesis-v2.5).
+
 Open **Settings → Feishu → Connect Feishu**. Existing verified authorization
 from the official local CLI is reused. Otherwise, the application opens the
 Feishu authorization page; finish there and click **Authorization complete**.

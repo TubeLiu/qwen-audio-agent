@@ -122,7 +122,7 @@ try {
     assert.ok(![...files].some(file => file.endsWith(`/node_modules/${name}/package.json`)), `Development tool ${name} must not be shipped`)
   }
   assert.ok(![...files].some(file => /\/(?:\.env|config\.env|gateway-credentials\.json|gateway-accounts\.json)$/.test(file)), 'Desktop package must not contain local configuration or credentials')
-  for (const file of ['desktop/src/main.mjs', 'desktop/src/feishu-gateway-client.mjs', 'server/src/index.mjs', 'shared/runtime-paths.mjs', 'shared/fork-identity.mjs', 'server/src/feishu/cli-locator.mjs', 'server/src/feishu/frontend-source.mjs', 'server/src/feishu/ai.mjs', 'server/src/feishu/documents.mjs', 'server/src/feishu/tools.mjs', 'server/src/voice/providers/mimo.mjs', 'server/src/voice/providers/mimo-bridge.mjs', 'server/src/voice/providers/mimo-feishu-policy.mjs', 'web/dist/index.html']) {
+  for (const file of ['desktop/src/main.mjs', 'desktop/src/feishu-gateway-client.mjs', 'server/src/index.mjs', 'shared/runtime-paths.mjs', 'shared/fork-identity.mjs', 'server/src/feishu/cli-locator.mjs', 'server/src/feishu/frontend-source.mjs', 'server/src/feishu/ai.mjs', 'server/src/feishu/documents.mjs', 'server/src/feishu/tools.mjs', 'server/src/voice/providers/mimo.mjs', 'server/src/voice/providers/mimo-bridge.mjs', 'server/src/voice/providers/mimo-speech-segments.mjs', 'server/src/voice/providers/mimo-feishu-policy.mjs', 'web/dist/index.html']) {
     assert.ok(files.has(`/${file}`), `Desktop package is missing ${file}`)
     assert.deepEqual(extractFile(archive, normalize(file)), readFileSync(join(root, file)), `Desktop package must contain the current ${file}`)
   }

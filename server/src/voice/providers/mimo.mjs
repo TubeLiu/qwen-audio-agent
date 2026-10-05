@@ -54,7 +54,10 @@ export async function closeMiMoRealtimeBridge() {
 export function createMiMoProtocol() {
   const id = prefix => `${prefix}_${randomUUID().replaceAll('-', '')}`
   return {
-    encodeOutgoing: payload => ({ event_id: id('event'), ...payload }), normalizeIncoming: event => event,
+    encodeOutgoing: payload => ({ event_id: id('event'), ...payload }),
+    normalizeIncoming: event => event.type === 'mimo.speech_unavailable'
+      ? { type: 'response.audio.failed', response_id: event.response_id, message: event.message }
+      : event,
     sessionUpdate: session => ({ type: 'session.update', session }),
     audioAppend: audio => ({ type: 'input_audio_buffer.append', audio }),
     imageAppend: () => { throw new Error('MiMo 语音管线仅支持文字与音频输入。') }, clearImageBuffer: () => undefined,

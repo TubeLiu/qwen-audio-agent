@@ -14,6 +14,7 @@ import {
   TOOLS,
 } from '../src/voice/realtime-provider.mjs'
 import { validateRealtimeProvider } from '../src/voice/providers/registry.mjs'
+import { createMiMoRealtimeProvider } from '../src/voice/providers/mimo.mjs'
 import { buildFrontendToolContext } from '../src/frontend/tools/frontend-tool-context.mjs'
 import { inputRequestResponseInstructions } from '../src/frontend/frontend-tools.mjs'
 import {
@@ -304,6 +305,61 @@ test('cancels and diagnoses a response only after output becomes inactive', asyn
   assert.equal(timeout.phase, 'inactivity')
   assert.ok(timeout.inactivityMs >= 10)
 })
+
+for (const ending of ['complete', 'stall', 'interrupt']) {
+  test(`native MiMo keeps 270 seconds of active PCM valid, then handles ${ending} without a fixed duration cutoff`, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const diagnostics = [], sent = []
+    const provider = createMiMoRealtimeProvider({ runtimeConfig: {
+      mimoBaseUrl: 'https://mock.invalid/v1', mimoApiKey: 'mock-chat', mimoChatModel: 'mock-chat',
+      mimoAsrBaseUrl: 'https://mock.invalid/v1', mimoAsrApiKey: 'mock-asr', mimoAsrModel: 'mock-asr',
+      mimoTtsBaseUrl: 'https://mock.invalid/v1', mimoTtsApiKey: 'mock-tts', mimoTtsModel: 'mock-tts',
+    } })
+    const frontend = new RealtimeFrontend({ provider, onDiagnostic: value => diagnostics.push(value) })
+    t.after(() => frontend.close())
+    frontend.ready = true
+    frontend.send = event => sent.push(event)
+    const pending = frontend.speak('This mocked MiMo response streams for longer than two minutes.', 'announcement', { taskId: 'task_long' })
+    await new Promise(resolve => setImmediate(resolve))
+    const request = frontend.pendingResponses[0]
+    frontend.handleLifecycle({ type: 'response.created', response: { id: 'mimo-long', metadata: { correlation_id: request.requestId } } })
+    for (let index = 0; index < 6; index++) {
+      t.mock.timers.tick(45_000)
+      frontend.handleLifecycle({ type: 'response.audio.delta', response_id: 'mimo-long', delta: Buffer.alloc(960).toString('base64') })
+      assert.equal(frontend.activeResponses.has('mimo-long'), true)
+      assert.equal(frontend.responseSlot.blocked, false)
+      assert.equal(sent.some(event => event.type === 'response.cancel'), false)
+    }
+    assert.equal(diagnostics.some(event => event.event === 'realtime.response_timeout'), false)
+    if (ending === 'complete') {
+      frontend.handleLifecycle({ type: 'response.done', response: { id: 'mimo-long', status: 'completed' } })
+      assert.deepEqual(await pending, { completed: true, responseId: 'mimo-long' })
+      assert.equal(frontend.activeResponses.size, 0)
+      assert.equal(sent.some(event => event.type === 'response.cancel'), false)
+    } else if (ending === 'stall') {
+      t.mock.timers.tick(119_999)
+      assert.equal(sent.some(event => event.type === 'response.cancel'), false)
+      t.mock.timers.tick(1)
+      assert.deepEqual(await pending, { timedOut: true, phase: 'inactivity', responseId: 'mimo-long' })
+      const timeout = diagnostics.find(event => event.event === 'realtime.response_timeout')
+      assert.equal(timeout.provider, 'mimo'); assert.equal(timeout.inactivityMs, 120_000)
+      assert.equal(sent.at(-1).type, 'response.cancel')
+      t.mock.timers.tick(1_000)
+      assert.equal(frontend.activeResponses.size, 0)
+      assert.equal(frontend.ready, false, 'a genuinely stalled response cannot hold the session forever')
+    } else {
+      frontend.cancel()
+      assert.deepEqual(await pending, { cancelled: true, phase: 'completion' })
+      assert.equal(sent.at(-1).type, 'response.cancel')
+      const late = { type: 'response.audio.delta', response_id: 'mimo-long', delta: Buffer.alloc(960).toString('base64') }
+      frontend.handleLifecycle(late)
+      assert.equal(late.__voiceContext.suppressed, true, 'late audio cannot restart speech after the user interrupts it')
+      frontend.handleLifecycle({ type: 'response.done', response: { id: 'mimo-long', status: 'cancelled' } })
+      assert.equal(frontend.activeResponses.size, 0)
+      assert.equal(frontend.responseSlot.blocked, false)
+    }
+  })
+}
 
 test('skips a queued response when its late deduplication guard rejects it', async () => {
   const frontend = createQwenFrontend()
