@@ -116,14 +116,18 @@ try {
   const archive = join(resources, 'app.asar')
   const files = new Set(listPackage(archive).map(file => file.replaceAll('\\', '/')))
   assert.equal(JSON.parse(extractFile(archive, 'package.json').toString('utf8')).name, FORK_PACKAGE_NAME)
+  assert.equal(JSON.parse(extractFile(archive, 'package.json').toString('utf8')).version,
+    JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version, 'Desktop package must contain the current version')
   for (const name of ['vite', 'rollup', 'esbuild', 'electron-builder']) {
     assert.ok(![...files].some(file => file.endsWith(`/node_modules/${name}/package.json`)), `Development tool ${name} must not be shipped`)
   }
   assert.ok(![...files].some(file => /\/(?:\.env|config\.env|gateway-credentials\.json|gateway-accounts\.json)$/.test(file)), 'Desktop package must not contain local configuration or credentials')
-  for (const file of ['desktop/src/main.mjs', 'desktop/src/feishu-gateway-client.mjs', 'server/src/index.mjs', 'shared/runtime-paths.mjs', 'shared/fork-identity.mjs', 'server/src/feishu/cli-locator.mjs', 'server/src/feishu/frontend-source.mjs', 'server/src/voice/providers/mimo.mjs', 'web/dist/index.html']) {
+  for (const file of ['desktop/src/main.mjs', 'desktop/src/feishu-gateway-client.mjs', 'server/src/index.mjs', 'shared/runtime-paths.mjs', 'shared/fork-identity.mjs', 'server/src/feishu/cli-locator.mjs', 'server/src/feishu/frontend-source.mjs', 'server/src/feishu/ai.mjs', 'server/src/feishu/documents.mjs', 'server/src/feishu/tools.mjs', 'server/src/voice/providers/mimo.mjs', 'server/src/voice/providers/mimo-bridge.mjs', 'server/src/voice/providers/mimo-feishu-policy.mjs', 'web/dist/index.html']) {
     assert.ok(files.has(`/${file}`), `Desktop package is missing ${file}`)
     assert.deepEqual(extractFile(archive, normalize(file)), readFileSync(join(root, file)), `Desktop package must contain the current ${file}`)
   }
+  assert.deepEqual(readFileSync(join(resources, 'runtime/config/frontend-agent/PROMPT.md')),
+    readFileSync(join(root, 'config/frontend-agent/PROMPT.md')), 'Desktop must ship the current Feishu read/confirmation routing instructions')
   assert.deepEqual(extractFile(archive, 'shared/runtime-paths.mjs'),
     readFileSync(join(resources, 'runtime/shared/runtime-paths.mjs')))
   const expectedElectron = JSON.parse(readFileSync(join(root, 'desktop/package.json'), 'utf8')).devDependencies.electron

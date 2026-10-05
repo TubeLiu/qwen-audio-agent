@@ -2,6 +2,7 @@ import http from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pcm16ToWav, decodeBase64Audio, redact, miMoChatOptions } from './mimo-audio.mjs';
+import { explicitFeishuObjective } from './mimo-feishu-policy.mjs';
 
 const id = prefix => `${prefix}_${randomUUID().replaceAll('-', '')}`;
 const MAX_INPUT_BYTES = 16000 * 2 * 30;
@@ -50,6 +51,7 @@ export class MiMoBridgeSession {
     this.history = []; this.calls = new Set(); this.muted = false; this.closed = false;
     this.audioChunks = []; this.audioBytes = 0; this.preRoll = []; this.preRollBytes = 0; this.speechId = null; this.voicedMs = 0; this.sampleMs = 0;
     this.generation = 0; this.inputGeneration = 0; this.active = null; this.asrController = null; this.vadTimer = null;
+    this.pendingFeishuInput = null;
   }
   emit(event) { if (!this.closed) this.sendFrame({ event_id: id('event'), ...event }); }
   error(message, eventId) { this.emit({ type: 'error', error: { type: 'mimo_bridge_error', message: redact(this.config, message), ...(eventId ? { event_id: eventId } : {}) } }); }
@@ -94,7 +96,13 @@ export class MiMoBridgeSession {
         } else if (item.type === 'message' && ['user', 'assistant', 'system'].includes(item.role)) {
           const text = textOf(item); if (text.length > 40000) throw new Error('对话项目过大。');
           // User identity and authorization belong to the authenticated Gateway.
-          if (text) this.append({ role: item.role === 'system' ? 'user' : item.role, content: text });
+          if (text) {
+            if (item.role === 'user' || item.role === 'system') {
+              this.pendingFeishuInput = null;
+              if (item.role === 'user' && message.context_only === false) this.markFeishuInput(text);
+            }
+            this.append({ role: item.role === 'system' ? 'user' : item.role, content: text });
+          }
         } else throw new Error('此语音前台只接收文字、语音和工具回执。');
         this.emit({ type: 'conversation.item.created', item: { ...item, id: itemId } });
         break;
@@ -176,6 +184,7 @@ export class MiMoBridgeSession {
       if (typeof text !== 'string' || !text.trim() || text.length > 4000) throw new Error('没有识别出有效语音。');
       if (this.closed || generation !== this.inputGeneration || controller.signal.aborted) return;
       this.append({ role: 'user', content: text.trim() });
+      this.markFeishuInput(text.trim());
       this.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: itemId, content_index: 0, transcript: text.trim() });
       await this.respond({});
     } catch (error) {
@@ -185,22 +194,31 @@ export class MiMoBridgeSession {
     } finally { if (this.asrController === controller) this.asrController = null; }
   }
   cancelResponse() {
+    this.pendingFeishuInput = null;
     this.generation++; this.inputGeneration++; this.asrController?.abort(); this.asrController = null;
     const active = this.active; if (!active) return;
     active.controller.abort(); this.active = null;
     this.emit({ type: 'response.done', response: { id: active.id, status: 'cancelled', output: [], metadata: active.metadata } });
   }
+  markFeishuInput(text) {
+    const objective = explicitFeishuObjective(text);
+    this.pendingFeishuInput = objective ? { objective } : null;
+  }
   async respond(options) {
     if (this.closed) return;
     if (this.active) { this.error('another response is in progress'); return; }
     const generation = this.generation, active = { id: id('response'), controller: new AbortController(), metadata: options.metadata || {} };
+    const userInput = this.pendingFeishuInput;
     this.active = active;
     const current = () => !this.closed && this.active === active && generation === this.generation && !active.controller.signal.aborted;
     this.emit({ type: 'response.created', response: { id: active.id, status: 'in_progress', metadata: active.metadata } });
     try {
       let content = options.mimo_speak_text; let calls = [];
       if (typeof content !== 'string') {
-        const tools = (this.settings.tools || []).filter(tool => tool.type === 'function' && typeof tool.name === 'string').map(tool => ({ type: 'function', function: { name: tool.name, description: tool.description || '', parameters: tool.parameters || { type: 'object', properties: {} } } }));
+        // MiMo documents only tool_choice=auto; none is ignored upstream.
+        // Omit the directory for result/permission speech and reject anomalous calls locally.
+        // https://mimo.mi.com/docs/en-US/api/chat
+        const tools = options.tool_choice === 'none' ? [] : (this.settings.tools || []).filter(tool => tool.type === 'function' && typeof tool.name === 'string').map(tool => ({ type: 'function', function: { name: tool.name, description: tool.description || '', parameters: tool.parameters || { type: 'object', properties: {} } } }));
         const instructions = [this.settings.instructions || '', options.instructions || ''].filter(Boolean).join('\n');
         const vendor = miMoChatOptions(this.config);
         const reply = await this.jsonRequest(this.config.apiBaseUrl, this.config.apiKey, '/chat/completions', { model: this.config.chatModel, messages: [{ role: 'system', content: instructions }, ...this.history], ...(tools.length ? { tools, tool_choice: options.tool_choice || 'auto', parallel_tool_calls: false } : {}), ...(Object.keys(vendor).length ? vendor : { max_tokens: 1200 }), stream: false }, active.controller);
@@ -211,6 +229,15 @@ export class MiMoBridgeSession {
         calls = message.tool_calls || [];
         if (!Array.isArray(calls) || calls.length > 16) throw new Error('模型工具调用数量不正确。');
         if (options.tool_choice === 'none' && calls.length) throw new Error('这次结果或确认播报禁止调用工具。');
+        if (userInput && this.pendingFeishuInput === userInput && tools.some(tool => tool.function.name === 'feishu_submit')) {
+          if (!calls.length) {
+            // Submit only the complete real user objective to the existing Gateway
+            // Task/typed planner. It still owns authorization and the one-use UI gate.
+            calls = [{ id: id('call'), type: 'function', function: { name: 'feishu_submit', arguments: JSON.stringify({ objective: userInput.objective }) } }];
+            content = '';
+          }
+          if (calls.some(call => call.function?.name === 'feishu_submit')) this.pendingFeishuInput = null;
+        }
         for (const call of calls) {
           if (!tools.some(tool => tool.function.name === call.function?.name) || typeof call.function.arguments !== 'string' || call.function.arguments.length > 20000) throw new Error('模型返回未知工具或过长参数。');
           try { JSON.parse(call.function.arguments); } catch { throw new Error('模型工具参数不是 JSON。'); }

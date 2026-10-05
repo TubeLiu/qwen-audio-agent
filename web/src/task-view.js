@@ -21,8 +21,35 @@ export function phaseForTask(task) {
 }
 
 export function taskIsActive(task) {
-  return ['submitted', 'working', 'auth_required', 'active']
+  return ['submitted', 'working', 'auth_required', 'input_required', 'active']
     .includes(task?.workState)
+}
+
+export function taskNeedsFeishuConfirmation(task) {
+  return task?.kind === 'feishu'
+    && task.inputRequest?.status === 'pending'
+    && task.inputRequest.kind === 'authorization'
+}
+
+export function taskInteractionActivity(event) {
+  if (event.type === 'task.input.requested') {
+    return event.task?.inputRequest?.kind === 'authorization'
+      ? t('等待你的确认')
+      : t('等待补充信息')
+  }
+  if (event.type === 'task.permission.requested') return t('等待你的确认')
+  if (event.type === 'task.input.resolved' || event.type === 'task.permission.resolved') {
+    return t('正在继续处理')
+  }
+  return null
+}
+
+export function upsertTaskView(tasks, task) {
+  const index = tasks.findIndex(current => current.id === task.id)
+  if (index < 0) return [...tasks, taskView(task)]
+  const next = [...tasks]
+  next[index] = taskView(task, tasks[index])
+  return next
 }
 
 export function taskNeedsPresentation(task) {

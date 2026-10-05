@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { WebSocket, WebSocketServer } from 'ws'
@@ -16,10 +16,11 @@ const environment = { QWAUDIO_CONFIG_DIR: join(bootstrap, 'config'), QWAUDIO_DAT
 const previousEnvironment = Object.fromEntries(Object.keys(environment).map(key => [key, process.env[key]]))
 Object.assign(process.env, environment)
 const [{ config: defaults }, { createGatewayApplication }, { createRealtimeProviderRegistry }, { createMiMoRealtimeProvider },
-  { createMiMoRealtimeBridge }, { ConversationSync }, { GatewayClient }, { TaskManager }] = await Promise.all([
+  { createMiMoRealtimeBridge }, { ConversationSync }, { GatewayClient }, { TaskManager }, { TaskStore }] = await Promise.all([
   import('../src/core/config.mjs'), import('../src/app/gateway-application.mjs'), import('../src/voice/realtime-provider-extension.mjs'),
   import('../src/voice/providers/mimo.mjs'), import('../src/voice/providers/mimo-bridge.mjs'), import('../src/conversation/conversation-sync.mjs'),
   import('../../shared/gateway/client-sdk.mjs'), import('../src/task/task-manager.mjs'),
+  import('../src/task/task-store.mjs'),
 ])
 for (const [key, value] of Object.entries(previousEnvironment)) { if (value === undefined) delete process.env[key]; else process.env[key] = value }
 test.after(() => rmSync(bootstrap, { recursive: true, force: true }))
@@ -43,8 +44,10 @@ function nativeBackend(calls) {
   }
 }
 
-async function fixture({ write = false } = {}) {
+async function fixture({ write = false, defaultBackendDisabled = false, restoredTasks = null, voiceOutput = false } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'native-feishu-'))
+  const previousBackendProtocol = defaults.agentProtocol
+  if (defaultBackendDisabled) defaults.agentProtocol = ''
   const config = { ...defaults, host: '127.0.0.1', port: 0, audioProvider: 'test-mimo',
     identityMode: 'personal', personalOwnerId: owner.ownerId, authSecret: 'mock-auth-secret-over-thirty-two-characters',
     gatewayAccessToken: '', gatewayAccessKeys: '', gatewayDeviceStatePath: join(directory, 'devices.json'),
@@ -70,11 +73,18 @@ async function fixture({ write = false } = {}) {
       const frame = `data: ${JSON.stringify({ choices: [{ delta: { audio: { data: Buffer.alloc(960).toString('base64') } } }] })}\n\ndata: [DONE]\n\n`
       return new Response(frame, { headers: { 'Content-Type': 'text/event-stream' } })
     }
-    if (!body.tools || body.tool_choice === 'none') return jsonReply('飞书结果已整理。')
+    if (!body.tools && body.messages[0].content.includes('这是飞书写入操作等待本次按钮确认的通知')) {
+      return jsonReply('飞书写入尚未执行，请在本应用对话面板查看完整预览，再点击确认执行本次操作。')
+    }
+    if (!body.tools && body.messages.some(message => String(message.content).includes('task_id:') && String(message.content).includes('准备评审'))) {
+      return jsonReply('飞书查询完成：有一项待办，准备评审。')
+    }
+    if (!body.tools) return jsonReply('飞书结果已整理。')
     if (!body.messages.some(message => message.tool_calls?.some(call => call.function?.name === 'feishu_submit'))) {
       return Response.json({ choices: [{ finish_reason: 'tool_calls', message: { content: '', tool_calls: [{ id: `call_${randomUUID().replaceAll('-', '')}`, type: 'function', function: { name: 'feishu_submit', arguments: JSON.stringify({ objective: text }) } }] } }] })
     }
-    return jsonReply('飞书工作已进入队列，写入等待本次完整预览确认。')
+    return jsonReply(write ? '飞书写入请求已受理，生成本应用的完整预览后才能点击执行。'
+      : '正在直接查询飞书任务，查询无需确认；结果返回后会告诉你。')
   }
   const bridgeToken = randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', '')
   const bridge = createMiMoRealtimeBridge({ config: { apiBaseUrl: config.mimoBaseUrl, apiKey: config.mimoApiKey, chatModel: config.mimoChatModel,
@@ -84,7 +94,8 @@ async function fixture({ write = false } = {}) {
   await bridge.listen()
   const provider = createMiMoRealtimeProvider({ runtimeConfig: config, connection: () => ({ url: `ws://127.0.0.1:${bridge.server.address().port}/realtime`, token: bridgeToken }) })
   const agent = nativeBackend(nativeCalls)
-  const application = createGatewayApplication({ config, agent, autoStart: false, parentPort: null, publicEndpoint: null,
+  if (restoredTasks) writeFileSync(config.taskStatePath, JSON.stringify({ version: 1, nextTaskNumber: 100, tasks: restoredTasks }))
+  const application = createGatewayApplication({ config, ...(defaultBackendDisabled ? {} : { agent }), autoStart: false, parentPort: null, publicEndpoint: null,
     conversationSync: new ConversationSync(), realtimeProviderRegistry: createRealtimeProviderRegistry({ providers: [{ ...provider, key: 'test-mimo' }], defaultProvider: 'test-mimo' }), realtimeProvider: 'test-mimo' })
   const work = application.services.feishu.work
   work.fetcher = fetcher
@@ -98,7 +109,7 @@ async function fixture({ write = false } = {}) {
   const playing = new Set()
   const client = new GatewayClient({ url: base.replace('http:', 'ws:') + '/api/realtime', createSocket: target => new WebSocket(target),
     clientType: 'test', clientInstanceId: randomUUID(), capabilities: ['input.text', 'tasks.commands', 'tasks.input.respond', 'permissions.respond', 'playback.receipts'],
-    configure: { textOnly: true, voiceEnabled: false, inputEnabled: false, outputEnabled: false, provider: 'test-mimo' }, reconnect: false,
+    configure: { textOnly: !voiceOutput, voiceEnabled: voiceOutput, inputEnabled: false, outputEnabled: voiceOutput, provider: 'test-mimo' }, reconnect: false,
     onEvent: event => {
       events.push(event)
       if (event.type === 'audio.delta' && !playing.has(event.responseId)) { playing.add(event.responseId); client.send({ type: 'playback.started', responseId: event.responseId }) }
@@ -107,7 +118,7 @@ async function fixture({ write = false } = {}) {
   client.start(); await until(() => client.ready)
   return { directory, config, application, work, client, requests, cliCalls, nativeCalls, events, base, text,
     async post(path, body, origin = base) { return fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify(body) }) },
-    async close() { client.close(); await application.close(); await bridge.close(); rmSync(directory, { recursive: true, force: true }) } }
+    async close() { client.close(); await application.close(); await bridge.close(); defaults.agentProtocol = previousBackendProtocol; rmSync(directory, { recursive: true, force: true }) } }
 }
 
 test('native frontend adds Feishu beside original agent tools and runs its typed read through the genuine TaskManager', async () => {
@@ -268,3 +279,154 @@ for (const termination of ['cancel', 'failure', 'expiry']) {
     } finally { await f.close() }
   })
 }
+
+for (const write of [false, true]) {
+  test(`actual default frontend-only backend still schedules independent Feishu ${write ? 'preview and once-only confirmed write' : 'read'}`, async () => {
+    const f = await fixture({ defaultBackendDisabled: true, write })
+    try {
+      assert.equal(f.application.services.agent.enabled, false)
+      assert.equal(f.application.services.agent.status().status, 'not_configured')
+      f.client.send({ type: 'text.message', text: f.text })
+      const task = await until(() => f.application.services.taskManager.list(owner).find(value => value.kind === 'feishu' && value.status !== 'queued'))
+      const names = f.requests.find(body => body.tools).tools.map(tool => tool.function.name)
+      assert.equal(names.includes('spawn_thinking'), false, 'the original unconfigured backend remains unavailable')
+      assert.equal(names.includes('feishu_submit'), true, 'independent Feishu is not gated by that backend')
+      if (write) {
+        const pending = await until(() => f.work.pending(owner)[0])
+        assert.equal(f.cliCalls.length, 0)
+        const route = `/api/feishu/plans/${pending.planId}`
+        const preview = await (await fetch(f.base + route)).json()
+        const response = await f.post(route + '/confirm', { taskId: task.id, reviewed: true, reviewToken: preview.reviewToken })
+        assert.equal(response.status, 200)
+      }
+      await until(() => f.application.services.taskManager.get(task.id, owner).status === 'completed')
+      assert.equal(f.cliCalls.length, 1)
+    } finally { await f.close() }
+  })
+}
+
+test('restart fails closed for persisted running and queued Feishu tasks without replay or retaining a scheduler slot', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'feishu-restart-'))
+  const store = new TaskStore({ filePath: join(directory, 'tasks.json') })
+  const old = new TaskManager({ store })
+  let release
+  const first = old.create({ ...owner, kind: 'feishu', objective: 'mock old Feishu work', laneKey: 'feishu-old', runner: async (_objective, { onEvent }) => {
+    onEvent({ type: 'backend.input.requested', input: { id: randomUUID(), kind: 'authorization', mode: 'url', prompt: 'mock full preview', url: 'http://localhost/preview', status: 'pending' } })
+    return new Promise(yes => { release = yes })
+  } })
+  await until(() => old.get(first.id, owner).status === 'running')
+  const queued = old.create({ ...owner, kind: 'feishu', objective: 'mock old queued work', laneKey: 'feishu-old', runner: async () => { throw new Error('A queued old write must never replay.') } })
+  await store.flush()
+  const persisted = store.load()
+  assert.equal(persisted.find(task => task.id === queued.id).status, 'queued')
+  let f
+  try {
+    f = await fixture({ defaultBackendDisabled: true, restoredTasks: persisted })
+    for (const accepted of [first, queued]) {
+      const task = f.application.services.taskManager.get(accepted.id, owner)
+      assert.equal(task.status, 'failed'); assert.equal(task.inputRequest, null)
+      assert.equal(f.application.services.taskManager.tasks.get(task.id).runner, null)
+    }
+    assert.equal(f.work.active.size, 0); assert.equal(f.cliCalls.length, 0)
+    f.client.send({ type: 'text.message', text: f.text })
+    await until(() => f.application.services.taskManager.list(owner).find(task => ![first.id, queued.id].includes(task.id) && task.status === 'completed'))
+    assert.equal(f.cliCalls.length, 1, 'new independent work must start after old unrecoverable tasks have failed')
+  } finally {
+    release({ content: 'mock old process shutdown' })
+    await old.tasks.get(first.id).promise
+    await old.tasks.get(queued.id).promise
+    await store.flush()
+    await f?.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('Feishu acceptance distinguishes queue admission from a real confirmation and completed reuse', async () => {
+  const taskManager = new TaskManager()
+  const work = { bindTaskSource() {}, submit: async () => ({ content: 'mock completed read' }), cancel: async () => ({}) }
+  const source = new FeishuFrontendToolSource({ taskManager, work })
+  const context = { ...owner, turnId: 'admission-turn' }
+  const first = await source.execute('feishu_submit', { objective: '只读查询' }, context)
+  assert.equal(first.state, 'queued'); assert.equal(first.confirmationReady, false); assert.equal(first.resultReady, false)
+  assert.equal(first.nextAction, 'wait_for_task_events'); assert.equal(first.readPolicy, 'execute_without_confirmation')
+  assert.match(first.message, /尚无查询结果或确认预览/); assert.match(first.message, /查询直接执行、无需确认/)
+  await until(() => taskManager.get(first.taskId, owner).status === 'completed')
+  const duplicate = await source.execute('feishu_submit', { objective: '重复只读查询' }, context)
+  assert.equal(duplicate.status, 'existing'); assert.equal(duplicate.state, 'completed'); assert.equal(duplicate.confirmationReady, false)
+  assert.equal(duplicate.resultReady, true); assert.equal(duplicate.nextAction, 'report_actual_result')
+  assert.equal(duplicate.result, 'mock completed read'); assert.match(duplicate.message, /不会重复提交/)
+  const description = source.tools()[0].definition.function.description
+  assert.match(description, /查询会直接执行，无需确认/)
+  assert.match(description, /不得要求用户去飞书官网查看预览/)
+  assert.match(description, /创建云文档并写入完整正文、向已有文档文末追加/)
+})
+
+test('a native frontend-only read delivers its actual result and PCM announcement on the same active voice connection without confirmation', async () => {
+  const f = await fixture({ defaultBackendDisabled: true, voiceOutput: true })
+  try {
+    assert.equal(f.application.services.agent.enabled, false)
+    f.client.send({ type: 'text.message', text: f.text })
+    const completed = await until(() => f.application.services.taskManager.list(owner).find(task => task.kind === 'feishu' && task.status === 'completed'))
+    assert.match(completed.result, /准备评审/)
+    assert.equal(f.work.pending(owner).length, 0)
+    assert.equal(f.events.some(event => event.type === 'task.input.requested' && event.task?.inputRequest?.kind === 'authorization'), false)
+    const announcement = await until(() => f.events.find(event => event.type === 'response.started' && event.origin === 'announcement'
+      && (event.taskId === completed.id || event.taskIds?.includes(completed.id))))
+    const transcript = await until(() => f.events.find(event => event.type === 'transcript.final' && event.responseId === announcement.responseId
+      && event.role === 'assistant' && String(event.content).includes('准备评审')))
+    assert.match(transcript.content, /查询完成/)
+    const done = await until(() => f.events.find(event => event.type === 'audio.done' && event.responseId === announcement.responseId))
+    assert.equal(done.turnId, announcement.turnId)
+    assert.ok(f.events.some(event => event.type === 'audio.delta' && event.responseId === announcement.responseId && Buffer.from(event.audio, 'base64').length > 0))
+    await until(() => f.application.services.taskManager.get(completed.id, owner).notificationStatus === 'delivered')
+    assert.equal(f.client.ready, true, 'no reconnect is needed to receive the final result')
+    assert.equal(f.cliCalls.length, 1)
+    assert.deepEqual(f.cliCalls[0].slice(0, 2), ['task', '+get-my-tasks'])
+    const receipt = f.requests.flatMap(body => body.messages || []).find(message => message.role === 'tool')
+    const accepted = JSON.parse(receipt.content)
+    assert.equal(accepted.confirmationReady, false); assert.equal(accepted.resultReady, false)
+    assert.equal(accepted.nextAction, 'wait_for_task_events'); assert.equal(accepted.readPolicy, 'execute_without_confirmation')
+  } finally { await f.close() }
+})
+
+test('a long document goal and completed result cannot turn a valid Feishu receipt into a frontend size error', async () => {
+  const taskManager = new TaskManager()
+  const fullObjective = '创建文档：' + '📘'.repeat(1990)
+  const fullResult = '📄'.repeat(4000)
+  const source = new FeishuFrontendToolSource({ taskManager,
+    work: { bindTaskSource() {}, submit: async () => ({ content: fullResult }), cancel: async () => ({}) } })
+  const context = { ...owner, turnId: 'large-admission-turn' }
+  const accepted = await source.execute('feishu_submit', { objective: fullObjective }, context)
+  assert.equal(accepted.objectiveTruncated, true)
+  assert.ok(Buffer.byteLength(JSON.stringify(accepted)) < 4096)
+  await until(() => taskManager.get(accepted.taskId, owner).status === 'completed')
+  const duplicate = await source.execute('feishu_submit', { objective: fullObjective }, context)
+  assert.equal(duplicate.resultReady, true); assert.equal(duplicate.resultTruncated, true)
+  assert.ok(Buffer.byteLength(JSON.stringify(duplicate)) < 4096)
+  assert.equal(taskManager.get(accepted.taskId, owner).objective, fullObjective)
+  assert.equal(taskManager.get(accepted.taskId, owner).result, fullResult)
+})
+
+test('actual native Feishu authorization notice uses this application button instructions without generic voice approval', async () => {
+  const f = await fixture({ defaultBackendDisabled: true, write: true, voiceOutput: true })
+  try {
+    f.client.send({ type: 'text.message', text: f.text })
+    const pending = await until(() => f.work.pending(owner)[0])
+    const notice = await until(() => f.requests.find(body => !body.tools
+      && body.messages[0].content.includes('这是飞书写入操作等待本次按钮确认的通知')))
+    const instructions = notice.messages[0].content
+    assert.match(instructions, /本应用对话面板查看完整预览/)
+    assert.match(instructions, /不要询问是否批准/)
+    assert.match(instructions, /不要调用 respond_agent_input、respond_permission/)
+    assert.doesNotMatch(instructions, /用户回答后调用 respond_agent_input|询问是否批准并停止输出|respond_agent_input 的 decline 拒绝当前预览/)
+    const task = f.application.services.taskManager.get(pending.taskId, owner)
+    assert.match(task.inputRequest.prompt, /本应用对话面板查看完整预览/)
+    assert.doesNotMatch(task.inputRequest.prompt, /设备|按 OK|打开链接/)
+    const response = await until(() => f.events.find(event => event.type === 'response.started' && event.origin === 'backend-input'
+      && event.taskId === task.id))
+    const spoken = await until(() => f.events.find(event => event.type === 'transcript.final' && event.responseId === response.responseId))
+    assert.match(spoken.content, /本应用对话面板查看完整预览/)
+    assert.equal(f.cliCalls.length, 0, 'an authorization notification never executes the write')
+    await f.application.services.taskOperations.cancel(task.id, owner)
+  } finally { await f.close() }
+})

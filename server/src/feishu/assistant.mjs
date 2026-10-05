@@ -2,9 +2,10 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { validateTool, compileTool, ValidationError } from './tools.mjs';
 import { PlanStore } from './plans.mjs';
 import { publicConfiguration, redact } from './config.mjs';
+import { documentCompletion, documentReference, rememberDocument, rememberSearchDocuments, verifiedDocumentWrite } from './documents.mjs';
 
-const writeIntent = /发送|发给|发一条|发消息|发个消息|发条消息|通知|创建|新建|添加|新增|增加|安排|预约|删除|取消日程|修改|更新|改成|改为|完成.{0,12}任务|标记.{0,8}完成|\b(send|create|add|schedule|delete|remove|update|change|complete)\b/i;
-const readIntent = /^(?:请|帮我|麻烦|我想|我需要|先|再|接着|现在|就)?\s*(?:查看|查询|读取|搜索|查找|打开|看看|读一下|查一下)|\b(read|list|show|search|find)\b/i;
+const writeIntent = /发送|发给|发一条|发消息|发个消息|发条消息|通知|创建|新建|建立|写入|写上|写进|写.{0,12}(?:云文档|文档)|追加|添加|新增|增加|安排|预约|删除|取消日程|修改|更新|改成|改为|完成.{0,12}任务|标记.{0,8}完成|\b(send|create|append|add|schedule|delete|remove|update|change|complete)\b/i;
+const readIntent = /^(?:(?:请|帮我|麻烦|我想|我需要|先|再|接着|现在|就|please|can you|could you)\s*)*(?:查看|查询|读取|搜索|查找|打开|看看|读一下|查一下|\b(?:read|list|show|search|find)\b)/i;
 const idKeys = new Set(['chatId', 'userId', 'eventId', 'calendarId', 'baseToken', 'tableId', 'taskId', 'tasklistId', 'assignee']);
 const externalIdKeys = new Set(['chat_id', 'open_id', 'user_id', 'event_id', 'calendar_id', 'base_token', 'app_token', 'table_id', 'task_id', 'task_guid', 'guid']);
 
@@ -54,7 +55,7 @@ export class Assistant {
         for (const [key, value] of this.sessions) if (Date.now() - value.lastUsed > 3600000) this.sessions.delete(key);
         if (this.sessions.size >= 1000) throw new Error('会话过多，请稍后重试。');
       }
-      session = { id, csrf: randomBytes(32).toString('hex'), history: [], userTexts: [], contextData: [], knownIds: new Set(), lastUsed: Date.now(), busy: false, pendingPlan: null, activeWriteIntent: null };
+      session = { id, csrf: randomBytes(32).toString('hex'), history: [], userTexts: [], contextData: [], knownIds: new Set(), knownDocs: new Map(), lastUsed: Date.now(), busy: false, pendingPlan: null, activeWriteIntent: null };
       this.sessions.set(id, session);
     }
     session.lastUsed = Date.now();
@@ -75,7 +76,7 @@ export class Assistant {
     if (session.busy) return { status: 'error', text: '上一条指令仍在处理中，请稍等。', sessionId: session.id };
     session.busy = true;
     try {
-      const asksWrite = writeIntent.test(text);
+      const asksWrite = !readIntent.test(text) && writeIntent.test(text);
       if (/^\s*(取消|取消操作|取消这次操作|算了|不用了|停止|不要执行|不创建了|不要创建了|不发了)\s*[。.!！]?\s*$/i.test(text)) {
         if (session.pendingPlan) { try { this.plans.cancel(session.pendingPlan, session.id); } catch {} }
         session.pendingPlan = null; session.activeWriteIntent = null;
@@ -108,6 +109,10 @@ export class Assistant {
         if (!session.activeWriteIntent) throw new ValidationError('当前指令未明确要求写入。请直接说明要发送、创建、修改、删除或完成哪项内容。');
         const userSource = [...session.userTexts, text].join('\n');
         for (const step of modelPlan.steps) {
+          if (step.tool === 'docs.append') {
+            const target = documentReference(step.args.doc);
+            if (!userSource.includes(step.args.doc) && !session.knownDocs.has(target.value) && !session.knownDocs.has(target.token)) throw new ValidationError('请提供或从文档搜索结果中明确选择真实目标文档，不能使用未经核实的链接或 token。');
+          }
           for (const [key, value] of Object.entries(step.args)) {
             if (idKeys.has(key) && typeof value === 'string' && !userSource.includes(value) && !session.knownIds.has(value)) throw new ValidationError(`请提供或从已查询结果中明确选择 ${key}，不能使用未经核实的目标。`);
             if (key === 'attendeeIds' && value.some(id => !userSource.includes(id) && !session.knownIds.has(id))) throw new ValidationError('请提供参与人的真实飞书 ID。');
@@ -123,6 +128,7 @@ export class Assistant {
         data.push({ tool: step.tool, data: result });
         // A document body never grants a capability to send to an ID it contains.
         if (['chats.search', 'calendar.list', 'base.records.list', 'tasks.list'].includes(step.tool)) collectIds(result, session.knownIds);
+        if (step.tool === 'docs.search') rememberSearchDocuments(session, result);
       }
       session.contextData = data;
       let answer;
@@ -138,17 +144,23 @@ export class Assistant {
       const auth = await this.cli.authStatus({ fresh: true });
       if (!auth.available) return { status: 'error', text: '飞书授权不可用；本次计划已结束，请授权后重新下达指令。', completed: [], failedStep: 1 };
       const completed = [];
+      const documentResults = [];
       for (let index = 0; index < plan.steps.length; index++) {
         const step = plan.steps[index];
         try {
-          const data = safeData(await this.cli.execute(compileTool(step, { openId: auth.openId })), this.config);
+          const data = verifiedDocumentWrite(step, safeData(await this.cli.execute(compileTool(step, { openId: auth.openId })), this.config), session.knownDocs);
           completed.push({ tool: step.tool, data }); collectIds(data, session.knownIds);
+          const documentResult = documentCompletion(step, data);
+          if (documentResult) {
+            documentResults.push(documentResult);
+            rememberDocument(session, documentReference(data.documentUrl || step.args.doc));
+          }
         } catch (error) {
           const text = `${completed.length ? `前 ${completed.length} 项已成功；` : ''}第 ${index + 1} 项未取得成功结果：${redact(this.config, error.message)} 后续步骤未执行。此计划不会重试写入；请先在飞书核对状态，再发起新指令。`;
           return { status: 'error', text, completed, failedStep: index + 1, ...(error.details?.missingScopes?.length ? { missingScopes: error.details.missingScopes } : {}) };
         }
       }
-      return { status: 'done', text: `已完成 ${completed.length} 项飞书操作。`, data: completed };
+      return { status: 'done', text: `已完成 ${completed.length} 项飞书操作。${documentResults.length ? '\n' + documentResults.join('\n') : ''}`, data: completed };
     });
     if (session.pendingPlan === planId) session.pendingPlan = null;
     session.activeWriteIntent = null;
@@ -169,7 +181,7 @@ export class Assistant {
   reset(session) {
     if (session.busy || [...this.plans.plans.values()].some(plan => plan.sessionId === session.id && plan.state === 'running')) throw new Error('当前指令仍在处理中，请稍后清空。');
     for (const plan of this.plans.plans.values()) if (plan.sessionId === session.id && plan.state === 'pending') this.plans.cancel(plan.id, session.id);
-    session.history = []; session.userTexts = []; session.contextData = []; session.knownIds.clear(); session.pendingPlan = null; session.activeWriteIntent = null;
+    session.history = []; session.userTexts = []; session.contextData = []; session.knownIds.clear(); session.knownDocs.clear(); session.pendingPlan = null; session.activeWriteIntent = null;
     return { status: 'done', text: '当前会话已清空，待确认计划已取消。', sessionId: session.id };
   }
 }

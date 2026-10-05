@@ -38,9 +38,12 @@ import {
   removeTaskInPhase,
   taskDeliverySettled,
   taskDetail,
+  taskInteractionActivity,
+  taskNeedsFeishuConfirmation,
   taskNeedsPresentation,
   taskLabel,
   taskView,
+  upsertTaskView,
 } from './task-view.js'
 import { taskHasArtifacts } from './task-artifacts.js'
 import useRealtimeVoice, {
@@ -745,22 +748,10 @@ export default function App() {
         taskView(task),
       ))
     }
-    if (
-      event.type === 'task.permission.requested'
-      || event.type === 'task.permission.resolved'
-    ) {
-      const task = event.task
-      if (event.type === 'task.permission.requested') {
-        setActivity(t('等待你的确认'))
-      } else {
-        setActivity(t('正在继续处理'))
-      }
-      setAgentTasks(items => upsertTask(
-        items,
-        task.id,
-        current => taskView(task, current),
-        taskView(task),
-      ))
+    const interactionActivity = taskInteractionActivity(event)
+    if (interactionActivity) {
+      setActivity(interactionActivity)
+      setAgentTasks(items => upsertTaskView(items, event.task))
     }
     if (event.type === 'task.completed') {
       const completed = event.task
@@ -768,12 +759,7 @@ export default function App() {
       if (!completed.turnId || completed.turnId === currentTurnId.current) {
         setActivity(t('正在准备回复'))
       }
-      setAgentTasks(items => upsertTask(
-        items,
-        completed.id,
-        task => taskView(completed, task),
-        taskView(completed),
-      ))
+      setAgentTasks(items => upsertTaskView(items, completed))
     }
     if (event.type === 'task.notification.delivered') {
       const delivered = event.task
@@ -1386,7 +1372,7 @@ export default function App() {
       />}
       <time>{desktopTaskElapsedSeconds(agentTask, taskClock)}s</time>
     </div>}
-    {agentTask.kind === 'feishu' && agentTask.inputRequest?.status === 'pending' && agentTask.inputRequest.kind === 'authorization' && <FeishuConfirmation task={agentTask} />}
+    {taskNeedsFeishuConfirmation(agentTask) && <FeishuConfirmation task={agentTask} />}
   </aside>
 
   const renderMessage = message => <article

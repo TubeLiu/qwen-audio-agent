@@ -36,10 +36,30 @@ remain in the CLI's local credential store and are never bundled into an install
 
 ## Feishu work
 
-Ask to read/search a document, find a chat, send a message, list/create/update/
+Ask to read/search/create a document, append document text, find a chat, send a message, list/create/update/
 delete a calendar event, create a Base/table/task record, or list/create/complete
 a task. Read operations run directly; incomplete requests ask for clarification.
 Feishu tasks use the existing task list, progress, cancellation and result speech.
+
+For an explicit Feishu operation, MiMo has an admission fallback: if the model
+only promises to act without calling a tool, the actual current user text goes
+to the Feishu task entry point for the normal validation, planning and preview.
+Retrieved data, restored conversations and announcements cannot trigger it.
+Result and confirmation announcements receive no tool directory.
+
+For example: “Create a Feishu document named 事项备忘录 and write:
+明天要记得给我的宝贝买蛋糕.” The single preview contains the full title and body.
+After button confirmation, one operation creates the document with its contents
+and returns the actual document URL supplied by Feishu. Titles are limited to
+200 characters and bodies to 4000; both are saved as plain text. To append to an
+existing document, provide its URL or search and explicitly select the target.
+Appending preserves existing text and requires a fresh full-preview confirmation.
+Instructions inside retrieved documents or summaries never authorize a write.
+
+Partial results, content warnings, missing success evidence and permission errors
+are reported as unverified success. Writes are never automatically retried.
+Check the document in Feishu first; if permissions are missing, follow the error
+to authorize the required document access before issuing a new instruction.
 
 Writes open a full preview in the conversation panel. Review the contents,
 check the review box, and click the button for that operation. Each approval
@@ -69,6 +89,12 @@ The packaging hook downloads version `1.0.97` of the official Feishu CLI,
 verifies its pinned SHA-256, and places the native executable outside ASAR.
 Mac universal builds include both native CLI architectures. Preserve the
 upstream signed build command when distributing a signed, notarized macOS app.
+
+The document operations map to the official CLI's `docs +create` and
+`docs +update --command append`, using fixed DocxXML encoding for literal text.
+Overwrite, local file import and remote image uploads are not exposed.
+See the official [create reference](https://github.com/larksuite/cli/blob/v1.0.97/skills/lark-doc/references/lark-doc-create.md)
+and [update reference](https://github.com/larksuite/cli/blob/v1.0.97/skills/lark-doc/references/lark-doc-update.md).
 
 This fork has a distinct application ID, `qwaudio-tubeliu` pairing scheme,
 update repository and default configuration directory:

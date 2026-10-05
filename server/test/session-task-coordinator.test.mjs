@@ -87,6 +87,36 @@ test('ordinary backend prose cannot synthesize an input request or permission', 
   assert.equal(h.injectCalls[0].origin, 'announcement')
 })
 
+for (const [kind, requestKind] of [['work', 'authorization'], ['feishu', 'authorization'], ['feishu', 'input']]) {
+  test(`${kind} ${requestKind} presentation selects the exact native approval or clarification workflow`, async t => {
+    const h = harness(t)
+    const run = await startTask(h, { kind })
+    run.emit({ type: 'backend.input.requested', input: {
+      id: 'workflow-input', kind: requestKind, status: 'pending', mode: requestKind === 'authorization' ? 'url' : 'text',
+      prompt: 'mock operation needs a decision', url: 'http://localhost/mock-preview',
+    } })
+    await flush()
+    const call = h.injectCalls.find(value => value.context.inputRequestId === 'workflow-input')
+    assert.ok(call)
+    assert.equal(call.origin, 'backend-input'); assert.equal(call.context.taskId, run.task.id)
+    assert.equal(call.options.contextTiming, 'immediate')
+    if (kind === 'feishu' && requestKind === 'authorization') {
+      assert.match(call.text, /本应用对话面板查看完整预览/)
+      assert.match(call.text, /waiting_for_full_preview_button/)
+      assert.match(call.options.instructions, /核对全文后点击“确认执行本次操作”/)
+      assert.match(call.options.instructions, /不要询问是否批准/)
+      assert.match(call.options.instructions, /不要调用 respond_agent_input、respond_permission/)
+      assert.doesNotMatch(call.options.instructions, /用户回答后调用 respond_agent_input|询问是否批准并停止输出|respond_agent_input 的 decline 拒绝当前预览/)
+      assert.doesNotMatch(call.text, /url=http/)
+    } else {
+      assert.match(call.options.instructions, /用户回答后调用 respond_agent_input/)
+      assert.match(call.options.instructions, /respond_agent_input 的 decline 拒绝当前预览/)
+      assert.doesNotMatch(call.text, /waiting_for_full_preview_button/)
+      if (requestKind === 'authorization') assert.match(call.text, /url=http:\/\/localhost\/mock-preview/)
+    }
+  })
+}
+
 test('owner/session filtering applies before projection, permission exposure and input delivery', async t => {
   const h = harness(t)
   const foreign = await startTask(h, { ownerId: 'other' })

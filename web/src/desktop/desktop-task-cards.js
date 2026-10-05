@@ -27,6 +27,7 @@ export function desktopTaskCards(tasks = []) {
       && (
         task.kind === undefined
         || task.kind === 'work'
+        || task.kind === 'feishu'
         || SCHEDULED_TASK_KINDS.has(task.kind)
       )
     ))

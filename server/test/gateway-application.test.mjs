@@ -23,10 +23,14 @@ import { MarkdownContextStore } from '../src/memory/providers/markdown/context-s
 import { buildMemoryContext } from '../src/memory/context.mjs'
 
 function createTestGatewayApplication(options = {}) {
-  // Application tests must never inherit the process-wide production task
-  // state. Besides making tests order-dependent, that used to write fixture
-  // work into ~/.config/qwaudio and later announce it to real voice clients.
+  // Application tests must never inherit process-wide task/session/notes
+  // state. Notes also hold cross-process file locks, so sharing the default
+  // path with other test workers makes unrelated applications contend.
   const runtimeDirectory = mkdtempSync(join(tmpdir(), 'qwaudio-app-runtime-'))
+  const runtimeConfig = { ...config, ...options.config }
+  if (options.config?.frontendNotesPath === undefined || options.config.frontendNotesPath === config.frontendNotesPath) {
+    runtimeConfig.frontendNotesPath = join(runtimeDirectory, 'frontend-notes.json')
+  }
   const taskStore = options.taskStore || new TaskStore({
     filePath: join(runtimeDirectory, 'tasks.json'),
   })
@@ -45,6 +49,7 @@ function createTestGatewayApplication(options = {}) {
     taskStore,
     sessionJournal,
     ...options,
+    config: runtimeConfig,
   })
   const close = application.close
   application.close = async () => {
@@ -56,6 +61,29 @@ function createTestGatewayApplication(options = {}) {
   }
   return application
 }
+
+test('application fixtures isolate inherited notes while preserving an explicit custom notes file', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'qwaudio-custom-notes-'))
+  const customPath = join(directory, 'chosen-notes.json')
+  const applications = []
+  t.after(async () => {
+    await Promise.all(applications.map(application => application.close()))
+    rmSync(directory, { recursive: true, force: true })
+  })
+  for (const overrides of [{}, { ...config }, { frontendNotesPath: customPath }]) {
+    applications.push(createTestGatewayApplication({ config: overrides, autoStart: false, parentPort: null,
+      frontendMcp: null, frontendOpenApi: null }))
+  }
+  const [first, second, custom] = applications.map(application => application.services.notesStore)
+  assert.notEqual(first.filePath, config.frontendNotesPath)
+  assert.notEqual(second.filePath, config.frontendNotesPath)
+  assert.notEqual(first.filePath, second.filePath)
+  first.add('fixture-owner', { list: 'fixture-list', items: ['only-first-fixture'] })
+  assert.equal(second.lists('fixture-owner').length, 0, 'another application cannot inherit the first fixture notes')
+  assert.equal(custom.filePath, customPath)
+  custom.add('fixture-owner', { list: 'chosen-list', items: ['explicit-file-marker'] })
+  assert.match(readFileSync(customPath, 'utf8'), /explicit-file-marker/)
+})
 
 function requestJson({ port, path, method = 'GET', headers = {}, body } = {}) {
   return new Promise((resolve, reject) => {
@@ -899,7 +927,7 @@ test('lets a v2 provider exclusively own automatic memory learning', async () =>
     query: async () => ({ memories: [], context: '' }),
     observe: async () => ({ observed: true }),
   }
-  const application = createGatewayApplication({
+  const application = createTestGatewayApplication({
     config: {
       ...config,
       port: 0,
@@ -925,7 +953,7 @@ test('selects the VoiceMem connector from Gateway configuration', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'qwaudio-gateway-voicemem-'))
   const sidecarPath = join(directory, 'sidecar.py')
   writeFileSync(sidecarPath, '')
-  const application = createGatewayApplication({
+  const application = createTestGatewayApplication({
     config: {
       ...config,
       port: 0,

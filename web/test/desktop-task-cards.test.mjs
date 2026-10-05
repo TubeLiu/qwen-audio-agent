@@ -39,6 +39,15 @@ test('supports legacy work events and ignores scheduled placeholders without a c
   ]).map(task => task.id), ['legacy'])
 })
 
+test('keeps Feishu task cards visible from submission through in-app confirmation and completion', () => {
+  const phases = ['queued', 'running', 'responding', 'completed', 'failed']
+  const tasks = phases.map((phase, index) => ({ id: `feishu-${phase}`, kind: 'feishu', phase,
+    createdAt: index, ...(phase === 'running' ? { inputRequest: { kind: 'authorization', status: 'pending' } } : {}) }))
+  const cards = desktopTaskCards([...tasks, { id: 'control', kind: 'control', phase: 'running' }])
+  assert.deepEqual(cards.map(task => task.id), tasks.map(task => task.id))
+  assert.equal(cards[1].inputRequest.kind, 'authorization')
+})
+
 test('advances active elapsed time from the task start', () => {
   assert.equal(desktopTaskElapsedSeconds({
     phase: 'running',

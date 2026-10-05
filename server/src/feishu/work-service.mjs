@@ -121,10 +121,10 @@ export class FeishuWorkService {
           const plan = owner.assistant.plans.get(result.planId, session.id);
           const preview = { taskId: entry.id, ownerId: entry.ownerId, planId: result.planId,
             reviewToken: randomUUID(),
-            preview: result.preview, text: '请阅读完整内容，然后点击确认按钮或在设备上按 OK。', expiresAt: plan.expires,
+            preview: result.preview, text: '请在本应用对话面板阅读完整预览，然后点击“确认执行本次操作”。', expiresAt: plan.expires,
             status: 'confirmation', entry, assistant: owner.assistant, session };
           this.previews.set(result.planId, preview); entry.planId = result.planId; entry.stage = 'awaiting_confirmation';
-          const input = { id: result.planId, kind: 'authorization', mode: 'url', prompt: '飞书操作等待逐次按钮确认。请打开链接阅读完整预览；口头授权和始终允许不能执行。',
+          const input = { id: result.planId, kind: 'authorization', mode: 'url', prompt: '飞书写入尚未执行。请在本应用对话面板查看完整预览，核对全文后点击“确认执行本次操作”；口头授权和始终允许不能执行。',
             url: `http://localhost:${this.config.port}/?feishuPlanId=${result.planId}`, status: 'pending', createdAt: this.now() };
           const pending = this.wait(entry, input, Math.max(1, plan.expires - this.now()));
           this.publishPreview({ type: 'feishu.preview', ...this.publicPreview(preview) });

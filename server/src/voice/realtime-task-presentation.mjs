@@ -23,6 +23,15 @@ function inputSchemaSummary(schema) {
   return fields.length ? JSON.stringify(fields) : ''
 }
 
+const feishuButtonResponseInstructions = [
+  '这是飞书写入操作等待本次按钮确认的通知，不是查询结果，也不是让用户口头授权的补充问题。',
+  '只简短告知：飞书写入尚未执行，请在本应用对话面板查看完整预览，核对全文后点击“确认执行本次操作”。',
+  '预览位于本应用，不能让用户去飞书官网查找，也不能称查询操作需要确认。',
+  '不要询问是否批准，不要等待或接受口头同意，不要调用 respond_agent_input、respond_permission 或其他工具批准或拒绝此预览；始终允许也不能批准。',
+  '用户可以在本应用预览中点击取消；若用户要修改操作内容，先引导取消旧预览，再重新明确下达修改后的指令。',
+  '不要朗读协议字段、工作 ID 或 URL，不要声称工作已完成。',
+].join(' ')
+
 /** Realtime presentation adapter; no Task state, execution or transport ownership. */
 export function createRealtimeTaskPresentation({
   getState, getFrontend, deliveryRuntime, updateContext, cancelPermission,
@@ -69,6 +78,7 @@ export function createRealtimeTaskPresentation({
     presentRequest(kind, task, options) {
       const permission = kind === 'permission'
       const request = permission ? task.authorization : task.inputRequest
+      const feishuButton = !permission && task.kind === 'feishu' && request.kind === 'authorization'
       const fields = permission ? '' : inputSchemaSummary(request.schema)
       return deliveryRuntime.deliver(createAgentDelivery({
         id: `${permission ? 'permission' : 'input'}_${request.id}`,
@@ -84,6 +94,14 @@ export function createRealtimeTaskPresentation({
           `operation=${request.summary}`,
           `allowed_decisions=${PERMISSION_DECISIONS.join(',')}`,
           '</permission_request>',
+        ] : feishuButton ? [
+          '<backend_input_request>',
+          `task_id=${task.id}`,
+          `request=${request.prompt}`,
+          'kind=feishu_write_confirmation; state=waiting_for_full_preview_button; nothing_has_been_written',
+          '请在本应用对话面板查看完整预览，核对全文后点击“确认执行本次操作”；取消也使用本应用预览中的按钮。',
+          '这不是查询操作。口头同意、始终允许、respond_agent_input 与 respond_permission 均不能执行此写入。',
+          '</backend_input_request>',
         ] : [
           '<backend_input_request>',
           `task_id=${task.id}`,
@@ -98,7 +116,7 @@ export function createRealtimeTaskPresentation({
           ...(permission ? { authorizationId: request.id } : { inputRequestId: request.id }),
         },
         presentation: {
-          instructions: permission ? permissionResponseInstructions : inputRequestResponseInstructions,
+          instructions: permission ? permissionResponseInstructions : feishuButton ? feishuButtonResponseInstructions : inputRequestResponseInstructions,
           contextTiming: 'immediate',
         },
       }), options)

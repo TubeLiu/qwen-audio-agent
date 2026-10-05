@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { documentBody, documentReference, newDocumentBody } from './documents.mjs';
 
 export class ValidationError extends Error {
   constructor(message) { super(message); this.name = 'ValidationError'; }
@@ -16,6 +17,8 @@ const user = argv => [...argv, '--as', 'user'];
 export const TOOLS = {
   'docs.read': definition('读取一个飞书文档或知识库。必须提供用户给出的 URL/token，不能猜测。', false, args({ doc: string(2048) }, ['doc']), a => user(['docs', '+fetch', '--doc', a.doc, '--doc-format', 'markdown']), a => `读取文档：${a.doc}`),
   'docs.search': definition('按关键词搜索用户可访问的文档/知识库。query最多30字。', false, args({ query: string(30), pageToken: string(1000) }, ['query']), a => { const v = ['drive', '+search', '--query', a.query, '--doc-types', 'docx,wiki', '--page-size', '15']; optional(v, '--page-token', a.pageToken); return user(v); }, a => `搜索文档：${a.query}`),
+  'docs.create': definition('新建飞书云文档，一次写入用户明确的标题和完整纯文本正文。不得拆成空文档创建再追加；不推测标题，不改写或增加正文。', true, args({ title: string(200), content: string(4000) }, ['title', 'content']), a => user(['docs', '+create', '--doc-format', 'xml', '--content', newDocumentBody(a.title, a.content)]), a => `创建云文档\n标题：${a.title}\n完整正文（纯文本）：\n${a.content}`),
+  'docs.append': definition('只向指定飞书云文档的文末追加用户明确的完整纯文本，不覆盖或删除已有内容。doc必须是用户提供或明确选择的真实docx/wiki URL/token；只有标题时先搜索或询问。', true, args({ doc: string(2048), content: string(4000) }, ['doc', 'content']), a => user(['docs', '+update', '--doc', a.doc, '--command', 'append', '--doc-format', 'xml', '--content', documentBody(a.content)]), a => `向云文档末尾追加\n目标：${a.doc}\n完整追加内容（纯文本）：\n${a.content}`),
   'chats.search': definition('按群名称查找飞书群，结果提供可发消息的 chat_id。', false, args({ query: string(100) }, ['query']), a => user(['im', '+chat-search', '--query', a.query, '--page-size', '20']), a => `查找群聊：${a.query}`),
   'messages.send': definition('向用户明确指定的群或个人发送文本。chatId和userId必须且只能给一个，必须来自用户输入或已确认的搜索结果；无法定位收件人时先查询或提问。', true, args({ chatId: string(100, '^oc_[A-Za-z0-9]+$'), userId: string(100, '^ou_[A-Za-z0-9]+$'), text: string(6000) }, ['text']), (a, context) => user(['im', '+messages-send', a.chatId ? '--chat-id' : '--user-id', a.chatId || a.userId, '--msg-type', 'text', '--content', JSON.stringify({ text: a.text }), '--idempotency-key', context.idempotencyKey]), a => `发送给 ${a.chatId || a.userId}\n${a.text}`),
   'calendar.list': definition('查询日程。start/end可为YYYY-MM-DD或带时区的RFC3339，必须有明确查询范围。', false, args({ start: dateSchema, end: dateSchema }, ['start', 'end']), a => user(['calendar', '+agenda', '--start', a.start, '--end', a.end]), a => `查看日程：${a.start} 至 ${a.end}`),
@@ -70,6 +73,8 @@ export function validateTool(name, input) {
       if (url.username || url.password || !/(^|\.)(feishu\.cn|larksuite\.com)$/.test(url.hostname) || !/^\/(docx|docs|wiki)\//.test(url.pathname)) throw new ValidationError('请提供飞书 docx/wiki 文档地址。');
     } else if (!/^[A-Za-z0-9]{10,150}$/.test(values.doc)) throw new ValidationError('请提供有效的飞书文档 token 或地址。');
   }
+  if (name === 'docs.append' && !documentReference(values.doc)) throw new ValidationError('请提供飞书 docx/wiki 文档的真实 URL/token，或先按标题搜索并明确选择。');
+  if (name === 'docs.create' && /[\r\n\t]/.test(values.title)) throw new ValidationError('文档标题必须是单行文本。');
   for (const key of ['start', 'end', 'due']) if (values[key] && !validDate(values[key], name.startsWith('calendar.') && name !== 'calendar.list')) throw new ValidationError(`${key} 日期必须有效；日程写入时间需要明确时区。`);
   if (values.start && values.end && Date.parse(values.start) >= Date.parse(values.end)) throw new ValidationError('结束时间必须晚于开始时间。');
   if (name === 'calendar.update') {

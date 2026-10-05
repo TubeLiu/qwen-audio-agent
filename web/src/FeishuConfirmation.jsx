@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { gatewayFetch } from './gateway-transport.js'
+import { feishuDecisionResult } from './feishu-decision.js'
 import './feishu-confirmation.css'
 
 export default function FeishuConfirmation({ task }) {
@@ -33,8 +34,8 @@ export default function FeishuConfirmation({ task }) {
         body: JSON.stringify({ taskId: task.id, reviewed, reviewToken: plan?.reviewToken }),
       })
       const result = await response.json()
-      if (!response.ok) throw new Error(result.error || '飞书操作未提交。')
-      setPlan(current => ({ ...current, status: 'done', text: result.text || '已取消本次操作。' }))
+      if (!response.ok) throw new Error(result.error || result.text || '飞书操作未提交。')
+      setPlan(current => ({ ...current, ...feishuDecisionResult(result, action) }))
     } catch (failure) { setError(failure.message) }
     finally { setBusy(false) }
   }
@@ -54,7 +55,7 @@ export default function FeishuConfirmation({ task }) {
         <button type="button" disabled={busy} onClick={() => decide('cancel')}>取消</button>
       </div>
     </>}
-    {plan && plan.status !== 'confirmation' && <p role="status">{plan.text}</p>}
+    {plan && plan.status !== 'confirmation' && <p role={plan.status === 'error' ? 'alert' : 'status'}>{plan.text}</p>}
     {error && <p role="alert">{error}</p>}
   </section>
 }
