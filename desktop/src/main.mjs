@@ -62,6 +62,7 @@ import {
 import { createOrbPlacement } from './orb-placement.mjs'
 import { bindOrbShell, configureOrbWindow } from './orb-shell.mjs'
 import { createSettingsStore } from './settings-store.mjs'
+import { createFeishuSettingsClient } from './feishu-gateway-client.mjs'
 import { desktopClientPaths } from './client-paths.mjs'
 import { createDesktopBackendManagement } from './backend/management.mjs'
 import {
@@ -96,7 +97,12 @@ import { createElectronGatewayCredentialStore } from './gateway-credential-store
 
 // Gateway paths belong to the Gateway; Electron's userData holds only client
 // preferences, credentials, presentation assets and local caches.
-app.setName('Qwen Audio Agent')
+app.setName('Qwen Audio Agent TubeLiu')
+app.setPath('userData', resolve(app.getPath('appData'), 'Qwen Audio Agent TubeLiu'))
+if (!process.env.QWAUDIO_CONFIG_DIR) {
+  const { forkConfigDirectory } = await import('../../shared/fork-identity.mjs')
+  process.env.QWAUDIO_CONFIG_DIR = forkConfigDirectory()
+}
 const clientPaths = desktopClientPaths(app.getPath('userData'))
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -845,6 +851,24 @@ ipcMain.on('qwen-audio-agent:open-external', async (event, value) => {
   if (response === 0) void shell.openExternal(target.href)
 })
 
+const requestFeishuSettings = createFeishuSettingsClient()
+for (const [channel, action] of [
+  ['qwen-audio-agent:feishu-status', 'status'],
+  ['qwen-audio-agent:feishu-login', 'login'],
+  ['qwen-audio-agent:feishu-complete', 'complete'],
+]) {
+  ipcMain.handle(channel, async (event, attemptId) => {
+    if (!settingsWindow || event.sender !== settingsWindow.webContents) throw new Error('无权修改飞书授权。')
+    const result = await requestFeishuSettings({ baseUrl: appOrigin, accessToken: gatewayAccessToken, action, attemptId })
+    if (action === 'login' && result.url) {
+      const url = new URL(result.url)
+      if (url.protocol !== 'https:' || !['feishu.cn', 'larksuite.com', 'larkoffice.com'].some(domain => url.hostname === domain || url.hostname.endsWith(`.${domain}`))) throw new Error('无效的飞书授权地址。')
+      await shell.openExternal(url.href)
+    }
+    return result
+  })
+}
+
 ipcMain.handle('qwen-audio-agent:settings-load', async event => {
   if (!settingsWindow || event.sender !== settingsWindow.webContents) {
     throw new Error('无权读取设置')
@@ -1204,7 +1228,7 @@ ipcMain.handle('qwen-audio-agent:skin-remove', async (event, id) => {
 })
 
 function gatewayPairingCodeFromArguments(argv = []) {
-  return argv.find(value => String(value || '').startsWith('qwaudio://connect')) || null
+  return argv.find(value => /^(?:qwaudio-tubeliu|qwaudio):\/\/connect/.test(String(value || ''))) || null
 }
 
 async function applyGatewayPairingCode(value) {
@@ -1240,9 +1264,9 @@ async function consumeGatewayPairingCode(value) {
 }
 
 if (process.defaultApp && process.argv[1]) {
-  app.setAsDefaultProtocolClient('qwaudio', process.execPath, [resolve(process.argv[1])])
+  app.setAsDefaultProtocolClient('qwaudio-tubeliu', process.execPath, [resolve(process.argv[1])])
 } else {
-  app.setAsDefaultProtocolClient('qwaudio')
+  app.setAsDefaultProtocolClient('qwaudio-tubeliu')
 }
 
 app.on('open-url', (event, value) => {

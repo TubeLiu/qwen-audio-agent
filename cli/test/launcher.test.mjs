@@ -415,7 +415,7 @@ test('keeps the temporary v1 pairing code behind an explicit compatibility flag'
   assert.equal(await main(['gateway', 'pair', '--legacy'], target.dependencies), 0)
   const output = target.calls.at(-1)[1]
   assert.match(output, /旧版客户端扫码配对/)
-  assert.match(output, /qwaudio:\/\/connect\?v=1&gateway=/)
+  assert.match(output, /qwaudio-tubeliu:\/\/connect\?v=1&gateway=/)
   assert.match(output, /有效期至/)
 })
 

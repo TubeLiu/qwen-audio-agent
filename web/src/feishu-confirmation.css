@@ -1,0 +1,7 @@
+.feishu-confirmation { width: 100%; padding: 12px; border: 1px solid currentColor; border-radius: 8px; }
+.feishu-confirmation p { margin: 8px 0; font-size: 13px; line-height: 1.5; }
+.feishu-confirmation pre { max-height: 280px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px; background: rgba(128,128,128,.1); font: inherit; line-height: 1.6; user-select: text; }
+.feishu-confirmation label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.feishu-confirmation div { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.feishu-confirmation button { padding: 6px 10px; }
+.agent-task > .feishu-confirmation { grid-column: 1 / -1; flex-basis: 100%; }

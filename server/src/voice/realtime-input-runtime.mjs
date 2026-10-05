@@ -47,6 +47,7 @@ export class RealtimeInputRuntime {
     reportFrontendError,
     onSpeechStarted = () => {},
     onSpeechStopped = () => {},
+    onUserInput = () => {},
     createInputTurnId = () => `text_${randomUUID().replaceAll('-', '')}`,
   }) {
     this.ownerId = ownerId
@@ -67,6 +68,7 @@ export class RealtimeInputRuntime {
     this.reportFrontendError = reportFrontendError
     this.onSpeechStarted = onSpeechStarted
     this.onSpeechStopped = onSpeechStopped
+    this.onUserInput = onUserInput
     this.createInputTurnId = createInputTurnId
   }
 
@@ -224,6 +226,7 @@ export class RealtimeInputRuntime {
     }
     this.turns.commit(transcriptTurn)
     this.transcripts.record(transcriptTurn.turnId, transcript)
+    this.onUserInput({ ownerId: this.ownerId, sessionId: this.sessionId, turnId: transcriptTurn.turnId, text: transcript, source: 'voice-user' })
     if (this.shouldEnsurePermissionResponse(transcriptTurn)) {
       this.ensurePermissionResponseFor(transcriptTurn)
     }
@@ -296,6 +299,7 @@ export class RealtimeInputRuntime {
     })
     this.getFrontend()?.cancel()
     this.transcripts.record(inputTurnId, text || display)
+    if (text) this.onUserInput({ ownerId: this.ownerId, sessionId: this.sessionId, turnId: inputTurnId, text, source: 'text-user' })
     this.transcripts.recordParts(inputTurnId, inputFileParts(parts))
     this.conversationSync.record({
       ownerId: this.ownerId,

@@ -521,6 +521,7 @@ export function createRealtimeSessionRuntime({
     shouldEnsurePermissionResponse: context => responseTurnCandidate === context,
     ensurePermissionResponseFor,
     reportFrontendError,
+    onUserInput: fields => observers.emit('onUserInput', { ...fields, logger: connectionLogger }),
     onSpeechStarted: fields => {
       connectionLogger.info('realtime.provider.speech_started', fields)
       observeSessionAudio({ type: 'speech_started', ...fields })

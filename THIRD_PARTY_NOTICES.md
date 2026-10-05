@@ -23,10 +23,14 @@ qwen-audio-agent 使用并分发若干开源组件。项目自身使用 Apache L
 | Model Context Protocol TypeScript SDK | MIT | https://github.com/modelcontextprotocol/typescript-sdk |
 | Zod | MIT | https://github.com/colinhacks/zod |
 | concurrently | MIT | https://github.com/open-cli-tools/concurrently |
+| Official Lark/Feishu CLI 1.0.97 (native desktop resource) | MIT | https://github.com/larksuite/cli |
 
 完整、可复现的依赖版本记录在 `package-lock.json`。npm 安装保留每个依赖包自带的
 许可证文件；Electron 安装包同时保留 Electron/Chromium 自带的许可证与 notices。
 发布者在升级或新增依赖时必须检查其许可证兼容性，并同步更新本文件。
+
+TubeLiu 桌面成品在外置 `runtime/feishu-cli` 资源中同时保留官方 CLI 的 MIT LICENSE
+及版本、平台和 SHA-256 元数据；Copyright (c) 2026 Lark Technologies Pte. Ltd.
 
 可选安装组件（不在框架默认依赖或安装包中）：
 

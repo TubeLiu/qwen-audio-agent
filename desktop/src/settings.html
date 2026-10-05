@@ -67,6 +67,15 @@
             data-settings-tab="backend"
           >后台 Agent</button>
           <button
+            id="feishu-tab"
+            class="settings-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="feishu-settings"
+            data-settings-tab="feishu"
+          >飞书</button>
+          <button
             id="app-tab"
             class="settings-tab"
             type="button"
@@ -77,6 +86,30 @@
           >应用程序</button>
         </nav>
         <div class="settings-groups">
+          <section
+            id="feishu-settings"
+            class="settings-group"
+            role="tabpanel"
+            aria-labelledby="feishu-tab"
+            data-settings-panel="feishu"
+            hidden
+          >
+            <div class="settings-card">
+              <div class="setting-row">
+                <span class="setting-label">连接状态</span>
+                <span data-feishu-status aria-live="polite">正在检查…</span>
+              </div>
+              <div class="setting-row">
+                <span class="setting-label">飞书账户</span>
+                <div class="field-with-action feishu-connection-actions">
+                  <button type="button" class="link-button" data-feishu-connect>连接飞书</button>
+                  <button type="button" class="link-button" data-feishu-refresh>刷新状态</button>
+                  <button type="button" class="link-button" data-feishu-complete hidden>授权完成</button>
+                </div>
+              </div>
+              <p class="setting-hint">读取文档、发送消息、管理日程，以及创建多维表格和任务。发送或修改前会展示完整预览，需要你逐次点击确认。</p>
+            </div>
+          </section>
           <section
             id="voice-settings"
             class="settings-group"

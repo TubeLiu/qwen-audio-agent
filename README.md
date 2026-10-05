@@ -1,5 +1,10 @@
 # Qwen Audio Agent
 
+This is the [TubeLiu fork](https://github.com/TubeLiu/qwen-audio-agent) of
+[Qwen Audio Agent](https://github.com/QwenAudio/qwen-audio-agent). It retains the
+original desktop clients and adds native MiMo voice configuration and Feishu
+tools with explicit write previews. See the [MiMo and Feishu guide](docs/guides/mimo-feishu.md).
+
 [中文](README_ZH.md) | [English](README.md) | [User Guide](https://qwenaudio.github.io/qwen-audio-agent/) | [Quickstart](https://qwenaudio.github.io/qwen-audio-agent/getting-started/quickstart) | [Paper](https://arxiv.org/pdf/2609.25195)
 
 [![CI](https://github.com/QwenAudio/qwen-audio-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/QwenAudio/qwen-audio-agent/actions/workflows/ci.yml)

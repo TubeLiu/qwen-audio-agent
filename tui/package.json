@@ -1,11 +1,11 @@
 {
   "name": "@qwen-audio-agent/tui",
   "private": true,
-  "version": "2.0.1",
+  "version": "2.0.2-feishu.1",
   "type": "module",
   "scripts": {
     "start": "node src/index.mjs",
-    "test": "node --test"
+    "test": "node --test --test-concurrency=4"
   },
   "dependencies": {
     "ws": "^8.21.3"

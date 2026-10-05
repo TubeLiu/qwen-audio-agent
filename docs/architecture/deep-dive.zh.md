@@ -306,6 +306,9 @@ UI 仅消费公共 Task 与对话事件。包级别的 `shared` 模块是基础�
 
 - `memory/`：记忆接口、运行时、工具、提示与上下文、自动学习，以及 Markdown/VoiceMem Provider。
 - `knowledge/`：知识库接口、工具、检索运行时、入库服务与内置本地 Provider。
+- `feishu/`（TubeLiu fork）：新增工具源、类型化操作、本机 CLI 授权、任务执行器和
+  一次性预览。可选模块装配通过注入的 TaskManager 和用户输入观察器契约连接它。
+  该领域只导入自身模块及共享的 CLI 资源元数据，不绑定通用后台或改变供应商行为。
 - `frontend/`：核心前台指令、工具装配与执行、MCP/OpenAPI 工具，以及网页检索和搜索 Provider。
 - `voice/`：Realtime Provider 协议、连接、音频轮次、打断与播报投递。
 - `orchestration/`：与传输无关的共用用户任务操作与会话级投递协调。

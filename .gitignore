@@ -1,4 +1,10 @@
 node_modules/
+/.test-runtime/
+/vendor/
+vendor/feishu-cli/
+.cache/feishu-cli/
+.cache/electron/
+.cache/electron-builder/
 output/playwright/browser-webui-smoke/
 web/dist/
 dist/

@@ -118,7 +118,7 @@ test('pairing codes are versioned, bounded records without permanent credentials
   assert.equal(pairingCode.version, 1)
   assert.equal('access_token' in pairingCode, false)
   const appUrl = new URL(encodeGatewayPairingCode(pairingCode))
-  assert.equal(appUrl.protocol, 'qwaudio:')
+  assert.equal(appUrl.protocol, 'qwaudio-tubeliu:')
   assert.equal(appUrl.hostname, 'connect')
   assert.equal(appUrl.searchParams.get('v'), '1')
   assert.equal(appUrl.searchParams.get('gateway'), pairingCode.gateway_url)

@@ -44,6 +44,7 @@ import {
 } from '../frontend/retrieval/frontend-retrieval-runtime.mjs'
 import { createWebSearchProvider } from '../frontend/retrieval/providers/factory.mjs'
 import { assertFrontendToolSource } from '../frontend/tools/frontend-tool-source.mjs'
+import { startMiMoRealtimeBridge, closeMiMoRealtimeBridge, isMiMoRealtimeConfigured } from '../voice/providers/mimo.mjs'
 import { FrontendMcpClient } from '../frontend/tools/mcp/frontend-mcp-client.mjs'
 import {
   loadFrontendMcpConfiguration,
@@ -191,11 +192,6 @@ const unsubscribeSessionTaskJournal = taskManager.subscribe(event => {
     },
   })
 }, { scope: 'all' })
-const frontendToolSources = [
-  frontendMcpRuntime,
-  frontendOpenApiRuntime,
-  ...additionalToolSources,
-].filter(Boolean).map(source => assertFrontendToolSource(source))
 const identityManager = new IdentityManager({
   secret: config.authSecret,
   mode: config.identityMode,
@@ -294,11 +290,17 @@ const textModelCall = config.memoryAutoEnabled
   : null
 const optionalModules = optionalModuleFactories.map(create => create({
   config, logger, conversationSync, textModelCall, audit: operationAudit,
-  workBackend, agent, backendRuntime, taskManager,
+  workBackend, agent, backendRuntime, taskManager, taskOperations,
   memoryProvider, frontendMemory, knowledgeProvider, knowledgeRetrievalProvider,
   frontendKnowledge, knowledgeRuntimeOptions,
 }))
 const optionalServices = Object.assign({}, ...optionalModules.map(module => module.services))
+const frontendToolSources = [
+  frontendMcpRuntime,
+  frontendOpenApiRuntime,
+  ...additionalToolSources,
+  ...optionalModules.flatMap(module => module.frontendToolSources || []),
+].filter(Boolean).map(source => assertFrontendToolSource(source))
 const {
   frontendMemory: frontendMemoryRuntime = null,
   frontendKnowledge: frontendKnowledgeRuntime = null,
@@ -326,7 +328,7 @@ if (config.sessionDigestEnabled) {
         // 只取 objective 与 id，状态留给检索时实时读 —— 摘要里存状态会冻结。
         listSessionWork: ({ ownerId, sessionId }) => taskManager
           .list({ ownerId, sessionId })
-          .filter(task => task.kind === 'work' || task.kind === 'scheduled_task')
+          .filter(task => task.kind === 'work' || task.kind === 'scheduled_task' || task.kind === 'feishu')
           .map(task => ({ id: task.id, objective: task.objective })),
       })
     : null
@@ -445,9 +447,12 @@ realtimeGateway = attachGatewayClientTransport(server, {
   clientEventRouter: gatewayEventRouter,
   logger,
 })
+let startPromise = null
 const start = ({ host = config.host, port = config.port } = {}) => {
-  if (server.listening) return server
-  server.listen(port, host, () => {
+  if (server.listening || startPromise) return server
+  const listen = () => {
+    if (closePromise) return server
+    server.listen(port, host, () => {
     const address = server.address()
     const boundPort = address && typeof address === 'object' ? address.port : port
     const origin = `http://${host}:${boundPort}`
@@ -469,7 +474,15 @@ const start = ({ host = config.host, port = config.port } = {}) => {
       realtimeProvider,
     }, `qwen-audio-agent running at ${origin}`)
     void publicEndpointRuntime?.start?.(localGatewayOrigin(address))
-  })
+    })
+    return server
+  }
+  if (config.audioProvider === 'mimo' || isMiMoRealtimeConfigured(config)) {
+    startPromise = startMiMoRealtimeBridge({ runtimeConfig: config }).then(listen).catch(async error => {
+      await closeMiMoRealtimeBridge()
+      server.emit('error', error)
+    })
+  } else listen()
   return server
 }
 
@@ -487,6 +500,8 @@ const close = () => {
     await webRtcIngress?.close()
     await realtimeGateway?.close?.()
     await frontendRuntime.close()
+    await startPromise
+    await closeMiMoRealtimeBridge()
     await frontendMcpRuntime?.close?.()
     await frontendOpenApiRuntime?.close?.()
     for (const source of additionalToolSources) await source.close()
@@ -525,6 +540,7 @@ return {
     frontendMcp: frontendMcpRuntime,
     frontendOpenApi: frontendOpenApiRuntime,
     runtimeCommands,
+    taskOperations,
     gatewayEventRouter,
     publicEndpoint: publicEndpointRuntime,
     identityManager,

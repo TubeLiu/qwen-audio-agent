@@ -19,6 +19,7 @@ import VideoCallPanel from './composer/VideoCallPanel.jsx'
 import { desktopClientTools } from './desktop/client-tools.js'
 import TaskArtifacts from './TaskArtifacts.jsx'
 import PermissionActions from './PermissionActions.jsx'
+import FeishuConfirmation from './FeishuConfirmation.jsx'
 import DesktopFluidOrb from './desktop/DesktopFluidOrb.jsx'
 import DesktopSpriteOrb from './desktop/DesktopSpriteOrb.jsx'
 import KnowledgeLibraryPanel from './KnowledgeLibraryPanel.jsx'
@@ -1335,6 +1336,8 @@ export default function App() {
             title={detail}
           >
             <strong>{title}</strong>
+            {task.kind === 'feishu' && task.inputRequest?.kind === 'authorization' && <button type="button"
+              onClick={event => { event.stopPropagation(); void changeDesktopSurface('panel') }}>查看飞书完整预览</button>}
             <span className="desktop-task-state">
               <i aria-hidden="true" />
               <small>{progress}</small>
@@ -1383,6 +1386,7 @@ export default function App() {
       />}
       <time>{desktopTaskElapsedSeconds(agentTask, taskClock)}s</time>
     </div>}
+    {agentTask.kind === 'feishu' && agentTask.inputRequest?.status === 'pending' && agentTask.inputRequest.kind === 'authorization' && <FeishuConfirmation task={agentTask} />}
   </aside>
 
   const renderMessage = message => <article

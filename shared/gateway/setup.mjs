@@ -26,10 +26,10 @@ export function gatewaySetupStatus(env = process.env) {
     })
   }
   if (!frontend.active.configured) {
-    missing.push({
-      ...frontend.active.requiredConfiguration,
+    missing.push(...frontend.active.missingConfigurations.map(field => ({
+      ...field,
       message: frontend.missingConfigurationMessage,
-    })
+    })))
   }
   return {
     ready: missing.length === 0,

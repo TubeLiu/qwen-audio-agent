@@ -1,12 +1,12 @@
 {
   "name": "@qwen-audio-agent/desktop",
   "private": true,
-  "version": "2.0.1",
+  "version": "2.0.2-feishu.1",
   "type": "module",
   "main": "src/main.mjs",
   "scripts": {
     "start": "electron .",
-    "test": "node --test"
+    "test": "node --test --test-concurrency=4"
   },
   "devDependencies": {
     "electron": "43.6.0"

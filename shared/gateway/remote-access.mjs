@@ -241,7 +241,7 @@ export function assertGatewayPairingCodeActive(pairingCode, now = Date.now()) {
 
 export function encodeGatewayPairingCode(pairingCode) {
   const parsed = parseGatewayPairingCode(pairingCode)
-  const url = new URL('qwaudio://connect')
+  const url = new URL('qwaudio-tubeliu://connect')
   url.searchParams.set('v', String(parsed.version))
   url.searchParams.set('gateway', parsed.gateway_url)
   url.searchParams.set('code', parsed.pairing_code)
@@ -266,7 +266,7 @@ export function decodeGatewayPairingCode(value) {
       code: 'gateway_pairing_code_invalid',
     })
   }
-  const isAppPairingCode = url.protocol === 'qwaudio:' && url.hostname === 'connect'
+  const isAppPairingCode = ['qwaudio-tubeliu:', 'qwaudio:'].includes(url.protocol) && url.hostname === 'connect'
   const isBrowserPairingCode = url.protocol === 'https:' && url.pathname === '/c'
   if (!isAppPairingCode && !isBrowserPairingCode) {
     throw Object.assign(new Error('Invalid Gateway pairing URL'), {

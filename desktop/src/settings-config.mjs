@@ -74,12 +74,13 @@ function cleanUrl(value, fallback, label = '地址') {
   return url.origin
 }
 
-function cleanRealtimeUrl(value, fallback, label = '服务地址') {
+function cleanRealtimeUrl(value, fallback, label = '服务地址', schemes = ['ws:', 'wss:']) {
   const text = String(value || fallback).trim()
   const url = new URL(text)
-  if (!['ws:', 'wss:'].includes(url.protocol)) {
-    throw new Error(`${label}只支持 WS 或 WSS`)
+  if (!schemes.includes(url.protocol)) {
+    throw new Error(`${label}只支持 ${schemes.map(scheme => scheme.slice(0, -1).toUpperCase()).join(' 或 ')}`)
   }
+  if (schemes.includes('http:') && (url.username || url.password || url.search || url.hash)) throw new Error(`${label}不能包含用户名、密码、查询参数或片段`)
   return text.replace(/\/+$/, '')
 }
 
@@ -182,7 +183,7 @@ function normalizeRealtimeSettings(settings, realtimeProvider) {
       // Inactive providers retain their drafts but cannot block applying the
       // selected provider. The active endpoint is validated at the IPC boundary.
       values[field.key] = active && field.type === 'url'
-        ? cleanRealtimeUrl(value, '') : value
+        ? cleanRealtimeUrl(value, '', field.label, field.schemes) : value
     }
   }
   return { ...values, realtimeProvider }
@@ -361,7 +362,9 @@ export function realtimeSettingsConfigured(settings = {}) {
   try {
     const frontend = realtimeSettingsConfiguration(settings)
     assertRealtimeFrontendModel(frontend.active)
-    return frontend.active.configured && Boolean(cleanRealtimeUrl(frontend.active.endpoint, ''))
+    if (!frontend.active.configured) return false
+    normalizeRealtimeSettings(settings, frontend.active.provider)
+    return true
   } catch {
     return false
   }

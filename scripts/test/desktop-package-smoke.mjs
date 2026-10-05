@@ -4,10 +4,14 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { extractFile, listPackage } from '@electron/asar'
+import { FORK_PACKAGE_NAME, FORK_PRODUCT_NAME } from '../../shared/fork-identity.mjs'
+import { FEISHU_CLI_VERSION } from '../../shared/feishu-cli-assets.mjs'
+import { resolveFeishuCli } from '../../server/src/feishu/cli-locator.mjs'
+import { sha256File } from '../prepare-feishu-cli.mjs'
 
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const scratch = mkdtempSync(join(tmpdir(), 'qwa-desktop-package-'))
@@ -42,6 +46,7 @@ async function checkGateway(executable, archive) {
       QWAUDIO_CONFIG_DIR: configDirectory,
       DASHSCOPE_API_KEY: 'sk-packaged-smoke-placeholder',
       AGENT_PROTOCOL: 'none',
+      FEISHU_ENABLED: 'false',
       PORT: '0',
     },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
@@ -90,25 +95,34 @@ try {
       join(root, 'node_modules/electron-builder/cli.js'),
       '--config', 'desktop/electron-builder.yml', platform, `--${process.arch}`,
       '--dir', '--publish', 'never', `--config.directories.output=${outputDirectory}`,
+      `--config.electronDownload.cache=${process.env.ELECTRON_CACHE || join(root, '.cache/electron')}`,
       ...(process.platform === 'darwin' ? [
         '--config.mac.identity=null', '--config.mac.hardenedRuntime=false', '--config.mac.notarize=false',
       ] : []),
-    ], { env: { ...environment, CSC_IDENTITY_AUTO_DISCOVERY: 'false' } })
+    ], { env: { ...environment, CSC_IDENTITY_AUTO_DISCOVERY: 'false',
+      ELECTRON_BUILDER_CACHE: process.env.ELECTRON_BUILDER_CACHE || join(root, '.cache/electron-builder'),
+    } })
     const platformDirectory = process.platform === 'darwin'
       ? `mac${process.arch === 'x64' ? '' : `-${process.arch}`}`
       : `${process.platform === 'win32' ? 'win' : 'linux'}${process.arch === 'x64' ? '' : `-${process.arch}`}-unpacked`
     appDirectory = join(outputDirectory, platformDirectory,
-      ...(process.platform === 'darwin' ? ['Qwen Audio Agent.app'] : []))
+      ...(process.platform === 'darwin' ? [`${FORK_PRODUCT_NAME}.app`] : []))
   }
   const resources = process.platform === 'darwin'
     ? join(appDirectory, 'Contents/Resources') : join(appDirectory, 'resources')
   const executable = process.platform === 'darwin'
-    ? join(appDirectory, 'Contents/MacOS/Qwen Audio Agent')
-    : join(appDirectory, process.platform === 'win32' ? 'Qwen Audio Agent.exe' : 'qwen-audio-agent')
+    ? join(appDirectory, `Contents/MacOS/${FORK_PRODUCT_NAME}`)
+    : join(appDirectory, process.platform === 'win32' ? `${FORK_PRODUCT_NAME}.exe` : FORK_PACKAGE_NAME)
   const archive = join(resources, 'app.asar')
   const files = new Set(listPackage(archive).map(file => file.replaceAll('\\', '/')))
-  for (const file of ['desktop/src/main.mjs', 'server/src/index.mjs', 'shared/runtime-paths.mjs', 'web/dist/index.html']) {
+  assert.equal(JSON.parse(extractFile(archive, 'package.json').toString('utf8')).name, FORK_PACKAGE_NAME)
+  for (const name of ['vite', 'rollup', 'esbuild', 'electron-builder']) {
+    assert.ok(![...files].some(file => file.endsWith(`/node_modules/${name}/package.json`)), `Development tool ${name} must not be shipped`)
+  }
+  assert.ok(![...files].some(file => /\/(?:\.env|config\.env|gateway-credentials\.json|gateway-accounts\.json)$/.test(file)), 'Desktop package must not contain local configuration or credentials')
+  for (const file of ['desktop/src/main.mjs', 'desktop/src/feishu-gateway-client.mjs', 'server/src/index.mjs', 'shared/runtime-paths.mjs', 'shared/fork-identity.mjs', 'server/src/feishu/cli-locator.mjs', 'server/src/feishu/frontend-source.mjs', 'server/src/voice/providers/mimo.mjs', 'web/dist/index.html']) {
     assert.ok(files.has(`/${file}`), `Desktop package is missing ${file}`)
+    assert.deepEqual(extractFile(archive, normalize(file)), readFileSync(join(root, file)), `Desktop package must contain the current ${file}`)
   }
   assert.deepEqual(extractFile(archive, 'shared/runtime-paths.mjs'),
     readFileSync(join(resources, 'runtime/shared/runtime-paths.mjs')))
@@ -117,8 +131,22 @@ try {
     env: { ...environment, ELECTRON_RUN_AS_NODE: '1' }, timeout: 10_000,
   })
   assert.equal(electron, expectedElectron, 'Build and tests must use the same Electron version')
+  const cli = resolveFeishuCli({ env: {}, resourcesPath: resources })
+  const cliMetadata = JSON.parse(readFileSync(join(resources, 'runtime/feishu-cli', `${process.platform}-${process.arch}`, 'metadata.json'), 'utf8'))
+  assert.equal(cliMetadata.version, FEISHU_CLI_VERSION)
+  // macOS signing changes Mach-O bytes after the verified beforePack download.
+  // The installer/app signature protects that signed slice; its version is
+  // still executed below. Windows/Linux retain the original release bytes.
+  if (process.platform !== 'darwin') {
+    assert.equal(await sha256File(cli), cliMetadata.binarySha256, 'Bundled CLI must match its verified resource metadata')
+  }
+  assert.match(await run(cli, ['--version'], { timeout: 15_000 }), new RegExp(FEISHU_CLI_VERSION.replaceAll('.', '\\.')))
+  const updateConfig = readFileSync(join(resources, 'app-update.yml'), 'utf8')
+  assert.match(updateConfig, /owner: TubeLiu/)
+  assert.match(updateConfig, /updaterCacheDirName: qwen-audio-agent-tubeliu-updater/)
+  assert.doesNotMatch(updateConfig, /owner: QwenAudio/)
   await checkGateway(executable, archive)
-  process.stdout.write('Packaged desktop smoke passed: ASAR/resources, Electron version, Gateway health and clean shutdown.\n')
+  process.stdout.write('Packaged desktop smoke passed: ASAR/resources, pinned Feishu CLI, fork update source, Electron version, Gateway health and clean shutdown.\n')
 } finally {
   rmSync(scratch, { recursive: true, force: true })
 }

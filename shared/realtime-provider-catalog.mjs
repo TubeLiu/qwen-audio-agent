@@ -117,11 +117,14 @@ export function resolveRealtimeFrontendConfiguration(env = process.env) {
   const voice = connection.voice
   const credential = connection.credential
   const required = PROVIDERS[provider].requiredConfiguration
-  const configured = Boolean(runtime[required.key])
+  const missingConfigurations = PROVIDERS[provider].requiredConfigurations.filter(field => !runtime[field.key])
+  const configured = missingConfigurations.length === 0
   const environmentAliases = PROVIDERS[provider].settings
     .find(field => field.key === required.field).environment
     .filter(key => key !== required.key)
   const identity = { provider, endpoint, model, voice, credential }
+  // Independent pipeline settings affect running sessions and Gateway reuse.
+  if (provider === 'mimo') identity.pipeline = Object.fromEntries(PROVIDERS[provider].settings.map(field => [field.key, settings[field.key]]))
   const signature = createHash('sha256')
     .update(JSON.stringify(identity))
     .digest('hex')
@@ -134,13 +137,14 @@ export function resolveRealtimeFrontendConfiguration(env = process.env) {
     voice,
     credentialConfigured: Boolean(credential),
     requiredConfiguration: PROVIDERS[provider].requiredConfiguration,
+    missingConfigurations,
     signature,
   })
 
   return {
     active,
     credential,
-    missingConfigurationMessage: `缺少 ${PROVIDERS[provider].requiredConfiguration.key}`
+    missingConfigurationMessage: `缺少 ${missingConfigurations.map(field => field.key).join('、') || required.key}`
       + (environmentAliases.length ? `（也支持 ${environmentAliases.join('、')}）` : '')
       + '。请运行 qwenaudio config 查看配置文件位置。',
   }

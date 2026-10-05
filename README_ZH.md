@@ -1,5 +1,10 @@
 # Qwen Audio Agent
 
+这是基于 [Qwen Audio Agent](https://github.com/QwenAudio/qwen-audio-agent) 的
+[TubeLiu fork](https://github.com/TubeLiu/qwen-audio-agent)，保留原桌面客户端及既有功能，
+新增原生 MiMo 语音配置与飞书工具，飞书写入需要全文预览和逐次确认。
+使用说明见 [MiMo 与飞书](docs/guides/mimo-feishu.zh.md)。
+
 [中文](README_ZH.md) | [English](README.md) | [用户手册](https://qwenaudio.github.io/qwen-audio-agent/zh/) | [快速开始](https://qwenaudio.github.io/qwen-audio-agent/zh/getting-started/quickstart) | [技术报告](https://arxiv.org/pdf/2609.25195)
 
 [![CI](https://github.com/QwenAudio/qwen-audio-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/QwenAudio/qwen-audio-agent/actions/workflows/ci.yml)

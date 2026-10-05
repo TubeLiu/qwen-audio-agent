@@ -5,7 +5,7 @@ import { createSettingsPicker } from './settings-picker.mjs'
 export function realtimeSettingsFields(provider, values) {
   const model = provider.settings.find(field => field.type === 'model')
   const profile = model ? resolveRealtimeModelProfile(values[model.key], provider.key) : null
-  return REALTIME_SETTING_SLOTS.map(slot => {
+  return [...REALTIME_SETTING_SLOTS.map(slot => {
     const field = provider.settings.find(field => field.slot === slot.slot
       && (!field.modelFamily || field.modelFamily === profile?.family))
     if (!field) {
@@ -20,7 +20,7 @@ export function realtimeSettingsFields(provider, values) {
       placeholder: field.modelFamily ? profile.sessionDefaults.voice || '模型默认音色'
         : field.placeholder || field.activeDefault || field.default,
     }
-  })
+  }), ...provider.settings.filter(field => field.extra).map(field => ({ ...field, disabled: false, placeholder: field.default || '' }))]
 }
 
 export function createRealtimeSettingsForm({ pickerRoot, panel, onChange, openExternal, translate = text => text }) {
@@ -60,7 +60,7 @@ export function createRealtimeSettingsForm({ pickerRoot, panel, onChange, openEx
       options: REALTIME_PROVIDERS.map(provider => ({
         value: provider.key, label: translate(provider.displayLabel || provider.label),
         keywords: `${provider.label} ${translate(provider.description)} ${provider.aliases.join(' ')}`,
-        status: translate(values()[provider.requiredConfiguration.field]?.trim() ? '已配置' : '待配置'),
+        status: translate(provider.requiredConfigurations.every(field => values()[field.field]?.trim()) ? '已配置' : '待配置'),
       })),
     })
   }
@@ -69,7 +69,7 @@ export function createRealtimeSettingsForm({ pickerRoot, panel, onChange, openEx
     const row = make('div', 'setting-row')
     const label = make('label', '', field.label)
     label.htmlFor = `realtime-${field.key || `${provider.key}-${field.slot}`}`
-    const input = make(field.type === 'model' && !field.disabled ? 'select' : 'input')
+    const input = make(field.type === 'model' && !field.editable && !field.disabled ? 'select' : 'input')
     input.id = label.htmlFor
     input.dataset.realtimeSlot = field.slot
     if (field.disabled) {
@@ -82,7 +82,7 @@ export function createRealtimeSettingsForm({ pickerRoot, panel, onChange, openEx
       return row
     }
     input.dataset.setting = field.key
-    if (field.type === 'model') {
+    if (field.type === 'model' && !field.editable) {
       const catalog = realtimeModelCatalog(provider.key)
       for (const profile of catalog?.profiles || []) {
         const option = make('option', '', profile.label)
@@ -95,7 +95,7 @@ export function createRealtimeSettingsForm({ pickerRoot, panel, onChange, openEx
         input.append(option)
       }
     } else {
-      input.type = field.type
+      input.type = field.type === 'model' ? 'text' : field.type
       input.autocomplete = 'off'
       input.spellcheck = false
       input.placeholder = translate(field.placeholder || '')

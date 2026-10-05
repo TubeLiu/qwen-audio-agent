@@ -9,6 +9,7 @@ import { doubaoSeeduplexProvider } from './doubao-seeduplex.mjs'
 import { s2sProvider } from './s2s.mjs'
 import { miniCpmOProvider } from './minicpm-o.mjs'
 import { stepfunProvider } from './stepfun.mjs'
+import { mimoProvider } from './mimo.mjs'
 import { createRealtimeProviderRegistry } from './provider-registry.mjs'
 
 export {
@@ -27,6 +28,7 @@ export const defaultRealtimeProviderRegistry = createRealtimeProviderRegistry({
     doubaoSeeduplexProvider,
     s2sProvider,
     miniCpmOProvider,
+    mimoProvider,
   ],
 })
 
@@ -105,4 +107,5 @@ export const REALTIME_PROVIDERS = Object.freeze({
   s2s: s2sProvider,
   'minicpm-o': miniCpmOProvider,
   minicpmo: miniCpmOProvider,
+  mimo: mimoProvider,
 })

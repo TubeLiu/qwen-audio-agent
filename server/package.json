@@ -1,12 +1,12 @@
 {
   "name": "@qwen-audio-agent/server",
   "private": true,
-  "version": "2.0.1",
+  "version": "2.0.2-feishu.1",
   "type": "module",
   "scripts": {
     "dev": "node --watch src/index.mjs",
     "start": "node src/index.mjs",
-    "test": "node --test"
+    "test": "node --test --test-concurrency=4"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",

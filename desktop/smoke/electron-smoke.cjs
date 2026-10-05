@@ -1,6 +1,10 @@
 const { app, BrowserWindow, ipcMain, Menu, nativeImage, Tray } = require('electron')
 const { resolve } = require('node:path')
 
+if (process.env.QWEN_SMOKE_USER_DATA_DIR) {
+  app.setPath('userData', process.env.QWEN_SMOKE_USER_DATA_DIR)
+}
+
 let tray
 
 app.whenReady().then(async () => {

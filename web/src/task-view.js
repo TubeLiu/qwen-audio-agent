@@ -58,6 +58,7 @@ export function removeTaskInPhase(tasks, taskId, phase) {
 }
 
 export function taskLabel(task) {
+  if (task.kind === 'feishu' && task.inputRequest?.status === 'pending') return task.inputRequest.kind === 'authorization' ? t('等待你的确认') : t('等待补充信息')
   if (task.authorization?.status === 'pending') return t('等待你的确认')
   if (task.phase === 'scheduled') return t('已安排')
   if (task.phase === 'failed') return t('处理失败')
@@ -92,6 +93,7 @@ function latestVisibleActivity(activity = []) {
 }
 
 export function taskDetail(task) {
+  if (task.kind === 'feishu' && task.inputRequest?.status === 'pending') return task.inputRequest.prompt
   if (task.authorization?.status === 'pending') {
     return task.authorization.summary || t('后台正在请求执行权限')
   }
@@ -259,6 +261,7 @@ export function taskView(task, previous = {}) {
         : {}
     ),
     error: task.error,
+    ...(Object.hasOwn(task, 'inputRequest') || Object.hasOwn(previous, 'inputRequest') ? { inputRequest: Object.hasOwn(task, 'inputRequest') ? task.inputRequest : previous.inputRequest } : {}),
     ...(
       Object.hasOwn(task, 'authorization')
       || Object.hasOwn(previous, 'authorization')

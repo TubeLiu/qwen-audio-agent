@@ -13,6 +13,7 @@ import {
 } from './realtime-status.mjs'
 import { realtimeSettingsValues } from '../../shared/realtime-provider-definitions.mjs'
 import { createRealtimeSettingsForm } from './realtime-settings-form.mjs'
+import { createFeishuSettingsForm } from './feishu-settings-form.mjs'
 import { updaterButtonState, updaterStatusText } from './update-status.mjs'
 import { isLoopbackUrl } from './security.mjs'
 import {
@@ -75,6 +76,12 @@ function applyLanguage(value) {
 
 applyLanguage('auto')
 
+const feishuSettings = createFeishuSettingsForm({
+  root: document.querySelector('#feishu-settings'),
+  api: window.qwenAudioAgentDesktop,
+  translate: t,
+})
+
 let settings
 let skins = []
 let runtime
@@ -111,6 +118,7 @@ function selectSettingsTab(value, { focus = false } = {}) {
   for (const panel of settingsPanels) {
     panel.hidden = panel.dataset.settingsPanel !== selected
   }
+  if (selected === 'feishu') void feishuSettings?.load()
   localStorage.setItem('qwen-audio-agent.settings-tab', selected)
 }
 

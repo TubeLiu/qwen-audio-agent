@@ -43,6 +43,17 @@ export class TaskOperations {
     // Task snapshot projects the latest one; retain the live requests as well.
     this.permissions = new Map()
     this.decisions = new Map()
+    this.inputResponders = new Map()
+  }
+
+  // Extra task domains can continue their own input without replacing the
+  // configured ACP/A2A backend or its permission semantics.
+  registerInputResponder(kind, respond) {
+    if (!kind || typeof respond !== 'function' || this.inputResponders.has(kind)) {
+      throw new TypeError('Task input responder must have one unique kind')
+    }
+    this.inputResponders.set(kind, respond)
+    return () => this.inputResponders.delete(kind)
   }
 
   get(taskId, context) {
@@ -212,11 +223,12 @@ export class TaskOperations {
 
   respondToInput(taskId, inputRequestId, response, context) {
     const task = this.get(taskId, context)
-    if (!this.respondInput || !task || task.status === 'cancelling'
+    const respond = task && (this.inputResponders.get(task.kind) || this.respondInput)
+    if (!respond || !task || task.status === 'cancelling'
       || (context.sessionId && task.sessionId !== context.sessionId)
       || task.inputRequest?.id !== inputRequestId || task.inputRequest.status !== 'pending') {
       throw new TaskOperationError('input_not_found', 'input request not found')
     }
-    return this.respondInput(task.id, inputRequestId, response, { ownerId: owner(context) })
+    return respond(task.id, inputRequestId, response, { ownerId: owner(context) })
   }
 }

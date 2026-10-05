@@ -390,6 +390,11 @@ across technical layers:
 
 - `memory/`: the memory contract, runtime, tools, instructions/context, learning pipeline, and Markdown/VoiceMem providers.
 - `knowledge/`: the knowledge contract, tools, retrieval runtime, ingestion service, and built-in local provider.
+- `feishu/` (TubeLiu fork): the additional tool source, typed operations, local
+  CLI authorization, task runners and one-use previews. The optional-module
+  assembly connects it through injected TaskManager and input-observer
+  contracts. This domain imports only its own modules and shared CLI asset
+  metadata; it does not bind the generic backend or change provider behavior.
 - `frontend/`: core chatbot instructions, tool composition/execution, MCP/OpenAPI tools, and web retrieval with its search providers.
 - `voice/`: Realtime provider protocols, connections, audio turns, interruption, and playback delivery.
 - `orchestration/`: transport-neutral user Task operations and session-scoped delivery coordination.

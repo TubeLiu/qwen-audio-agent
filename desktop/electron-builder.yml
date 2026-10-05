@@ -1,6 +1,7 @@
-appId: ai.qwenaudio.agent
-productName: Qwen Audio Agent
+appId: ai.qwenaudio.agent.tubeliu
+productName: Qwen Audio Agent TubeLiu
 # Resolve Electron from the installed, lockfile-pinned desktop dependency.
+beforePack: scripts/prepare-feishu-cli.mjs
 afterPack: scripts/desktop-after-pack.mjs
 asar: true
 npmRebuild: false
@@ -10,12 +11,13 @@ asarUnpack:
   # node + native runtimes), which cannot read files inside the asar archive.
   - node_modules/@qwen-code/open-computer-use/**/*
 extraMetadata:
+  name: qwen-audio-agent-tubeliu
   main: desktop/src/main.mjs
 
 protocols:
   - name: Qwen Audio Gateway Pairing
     schemes:
-      - qwaudio
+      - qwaudio-tubeliu
 
 directories:
   output: dist/desktop
@@ -24,7 +26,7 @@ directories:
 # 在运行时发现新版本；CI 发布时随 dmg 与 blockmap 一并上传。
 publish:
   - provider: github
-    owner: QwenAudio
+    owner: TubeLiu
     repo: qwen-audio-agent
 
 files:
@@ -48,9 +50,14 @@ extraResources:
     to: runtime/config
     filter:
       - "**/*"
+# afterPack copies only the verified Feishu binaries for the requested target
+# into runtime/feishu-cli outside ASAR (both slices for macOS universal apps).
 
 mac:
   category: public.app-category.productivity
+  # Both verified single-architecture CLI files are identical in the two app
+  # staging trees; universal merging must preserve them instead of running lipo.
+  x64ArchFiles: Contents/Resources/runtime/feishu-cli/darwin-*/lark-cli
   icon: desktop/build/icon.icns
   hardenedRuntime: true
   entitlements: desktop/build/entitlements.mac.plist
@@ -62,7 +69,7 @@ mac:
   target:
     - dmg
     - zip
-  artifactName: qwen-audio-agent-${version}-mac-${arch}.${ext}
+  artifactName: qwen-audio-agent-tubeliu-${version}-mac-${arch}.${ext}
 
 linux:
   # 官方 Release 发布 macOS 和 Windows 产物；Linux 用户可用 npm run desktop:build:linux
@@ -73,13 +80,13 @@ linux:
   target:
     - AppImage
     - deb
-  artifactName: qwen-audio-agent-${version}-linux-${arch}.${ext}
+  artifactName: qwen-audio-agent-tubeliu-${version}-linux-${arch}.${ext}
 
 win:
   icon: desktop/build/icon.png
   target:
     - nsis
-  artifactName: qwen-audio-agent-${version}-win-${arch}.${ext}
+  artifactName: qwen-audio-agent-tubeliu-${version}-win-${arch}.${ext}
 
 nsis:
   oneClick: false

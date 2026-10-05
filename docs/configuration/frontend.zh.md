@@ -15,6 +15,7 @@
 | 豆包 Seeduplex | `doubao-seeduplex` | `DOUBAO_API_KEY` | 模型、音色与服务地址配置见下表 |
 | Hugging Face speech-to-speech | `speech-to-speech` | 先启动服务；默认 `ws://127.0.0.1:8765/v1/realtime` | [本地模型链路](../voice-frontends/speech-to-speech.zh.md) |
 | MiniCPM-o 4.5 | `minicpm-o` | 先启动服务；默认 `ws://127.0.0.1:8006/v1/realtime?mode=audio` | [音频 / 视频模式及限制](../voice-frontends/minicpm-o.zh.md) |
+| MiMo（TubeLiu fork） | `mimo` | 独立填写 `MIMO_CHAT_API_KEY`、`MIMO_ASR_API_KEY` 和 `MIMO_TTS_API_KEY` | [MiMo 与飞书](../guides/mimo-feishu.zh.md) |
 
 例如，使用默认前台：
 
@@ -60,6 +61,23 @@ DashScope 当前内置以下模型档案：
 这些档案均支持工具调用。模型能否接收视觉帧，还取决于客户端和传输通道，见[视觉输入](../guides/vision.zh.md)。
 
 ## 应用并验证
+
+MiMo 需要独立配置三套 HTTP API。完整 `/v1` 地址会保留，适配器不会自动改换
+TokenPlan 服务：
+
+```dotenv
+QWEN_AUDIO_REALTIME_PROVIDER=mimo
+MIMO_CHAT_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
+MIMO_CHAT_API_KEY=your-chat-key
+MIMO_CHAT_MODEL=mimo-v2.6-flash
+MIMO_ASR_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
+MIMO_ASR_API_KEY=your-asr-key
+MIMO_ASR_MODEL=mimo-v2.5-asr
+MIMO_TTS_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
+MIMO_TTS_API_KEY=your-tts-key
+MIMO_TTS_MODEL=mimo-v2.5-tts
+MIMO_TTS_VOICE=mimo_default
+```
 
 1. 桌面版修改后点击“应用”。终端 Gateway 退出后重新启动；已安装的后台服务执行 `qwenaudio gateway restart`。
 2. 连接客户端，确认“语音前台”已连接。

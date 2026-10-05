@@ -11,6 +11,16 @@ import {
 } from '../src/settings-config.mjs'
 
 const REALTIME_DEFAULTS = {
+  mimoBaseUrl: 'https://token-plan-cn.xiaomimimo.com/v1',
+  mimoApiKey: '',
+  mimoChatModel: 'mimo-v2.6-flash',
+  mimoAsrBaseUrl: 'https://token-plan-cn.xiaomimimo.com/v1',
+  mimoAsrApiKey: '',
+  mimoAsrModel: 'mimo-v2.5-asr',
+  mimoTtsBaseUrl: 'https://token-plan-cn.xiaomimimo.com/v1',
+  mimoTtsApiKey: '',
+  mimoTtsModel: 'mimo-v2.5-tts',
+  mimoTtsVoice: 'mimo_default',
   wakeShortcut: 'CommandOrControl+Shift+Space',
   wakeWordEnabled: false,
   realtimeProvider: 'dashscope',

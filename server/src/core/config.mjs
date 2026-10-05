@@ -253,6 +253,21 @@ export const config = {
   realtimeEndpoint: realtimeFrontend.active.endpoint,
   realtimeModel: realtimeFrontend.active.model,
   realtimeVoice: realtimeFrontend.active.voice,
+  mimoBaseUrl: realtimeConnections.mimo.endpoint,
+  mimoApiKey: realtimeConnections.mimo.credential,
+  mimoChatModel: realtimeConnections.mimo.model,
+  mimoAsrBaseUrl: realtimeConnections.mimo.asrEndpoint,
+  mimoAsrApiKey: realtimeConnections.mimo.asrCredential,
+  mimoAsrModel: realtimeConnections.mimo.asrModel,
+  mimoTtsBaseUrl: realtimeConnections.mimo.ttsEndpoint,
+  mimoTtsApiKey: realtimeConnections.mimo.ttsCredential,
+  mimoTtsModel: realtimeConnections.mimo.ttsModel,
+  mimoTtsVoice: realtimeConnections.mimo.voice,
+  feishuEnabled: featureEnabled(process.env.FEISHU_ENABLED),
+  feishuCliPath: String(process.env.FEISHU_CLI_PATH || '').trim(),
+  feishuBaseUrl: String(process.env.FEISHU_BASE_URL || '').trim(),
+  feishuApiKey: String(process.env.FEISHU_API_KEY || '').trim(),
+  feishuChatModel: String(process.env.FEISHU_CHAT_MODEL || '').trim(),
   // User-managed huggingface/speech-to-speech OpenAI Realtime endpoint. The
   // pipeline owns its STT, LLM, TTS and voice configuration; Gateway only
   // connects to the endpoint and supplies the shared frontend instructions and

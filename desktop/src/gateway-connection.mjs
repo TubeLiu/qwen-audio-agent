@@ -16,7 +16,7 @@ export function parseDesktopGatewayInput(value) {
   } catch {
     throw new Error('请输入有效的 Gateway 地址或连接链接')
   }
-  const connectionLink = url.protocol === 'qwaudio:' || url.pathname === '/c'
+  const connectionLink = ['qwaudio-tubeliu:', 'qwaudio:'].includes(url.protocol) || url.pathname === '/c'
   const decoded = connectionLink ? decodeGatewayConnectionCode(url.href) : null
   const pairingCode = decoded?.kind === 'pairing' ? decoded.connection : null
   const directConnection = decoded?.kind === 'direct' ? decoded.connection : null

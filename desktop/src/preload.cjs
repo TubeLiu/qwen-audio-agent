@@ -78,6 +78,9 @@ contextBridge.exposeInMainWorld('qwenAudioAgentDesktop', {
   loadRuntimeStatus: () => ipcRenderer.invoke(
     'qwen-audio-agent:settings-runtime-status',
   ),
+  loadFeishuStatus: () => ipcRenderer.invoke('qwen-audio-agent:feishu-status'),
+  startFeishuLogin: () => ipcRenderer.invoke('qwen-audio-agent:feishu-login'),
+  completeFeishuLogin: attemptId => ipcRenderer.invoke('qwen-audio-agent:feishu-complete', attemptId),
   detectBackends: options => ipcRenderer.invoke(
     'qwen-audio-agent:settings-detect-backends',
     { force: options?.force === true },

@@ -11,6 +11,7 @@ import {
 } from './realtime-model-catalog.mjs'
 
 export const DEFAULT_REALTIME_PROVIDER = 'dashscope'
+export const DEFAULT_MIMO_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/v1'
 export const DEFAULT_DASHSCOPE_REALTIME_URL = 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime'
 export const DEFAULT_STEPFUN_REALTIME_URL = 'wss://api.stepfun.com/v1/realtime'
 export const DEFAULT_SPEECH_TO_SPEECH_REALTIME_URL = 'ws://127.0.0.1:8765/v1/realtime'
@@ -33,6 +34,7 @@ function defineProvider(definition) {
     ...definition,
     aliases: Object.freeze(definition.aliases || []),
     requiredConfiguration: Object.freeze(definition.requiredConfiguration),
+    requiredConfigurations: Object.freeze(definition.requiredConfigurations || [definition.requiredConfiguration]),
     settings: Object.freeze(definition.settings.map(field => Object.freeze({
       ...REALTIME_SETTING_SLOTS.find(slot => slot.slot === field.slot),
       default: '', ...field,
@@ -146,6 +148,28 @@ export const REALTIME_PROVIDERS = Object.freeze([
         environment: ['MINICPM_O_REALTIME_URL'] },
       { key: 'miniCpmOAuthToken', slot: 'credential', placeholder: '可选，用于 Bearer 认证',
         environment: ['MINICPM_O_AUTH_TOKEN'] },
+    ],
+  }),
+  defineProvider({
+    key: 'mimo', label: 'MiMo',
+    description: 'MiMo · 语音识别、文字对话与流式语音合成独立配置',
+    requiredConfiguration: { field: 'mimoApiKey', key: 'MIMO_CHAT_API_KEY' },
+    requiredConfigurations: [
+      { field: 'mimoApiKey', key: 'MIMO_CHAT_API_KEY' },
+      { field: 'mimoAsrApiKey', key: 'MIMO_ASR_API_KEY' },
+      { field: 'mimoTtsApiKey', key: 'MIMO_TTS_API_KEY' },
+    ],
+    settings: [
+      { key: 'mimoBaseUrl', slot: 'endpoint', label: '文字服务地址', schemes: ['http:', 'https:'], default: DEFAULT_MIMO_BASE_URL, environment: ['MIMO_CHAT_BASE_URL'] },
+      { key: 'mimoApiKey', slot: 'credential', label: '文字 API Key', environment: ['MIMO_CHAT_API_KEY'] },
+      { key: 'mimoChatModel', slot: 'model', label: '文字模型', editable: true, default: 'mimo-v2.6-flash', environment: ['MIMO_CHAT_MODEL'] },
+      { key: 'mimoTtsVoice', slot: 'voice', label: '合成音色', default: 'mimo_default', environment: ['MIMO_TTS_VOICE'] },
+      { key: 'mimoAsrBaseUrl', slot: 'asrEndpoint', type: 'url', label: '识别服务地址', schemes: ['http:', 'https:'], default: DEFAULT_MIMO_BASE_URL, environment: ['MIMO_ASR_BASE_URL'], extra: true },
+      { key: 'mimoAsrApiKey', slot: 'asrCredential', type: 'password', label: '识别 API Key', environment: ['MIMO_ASR_API_KEY'], extra: true },
+      { key: 'mimoAsrModel', slot: 'asrModel', type: 'text', label: '识别模型', default: 'mimo-v2.5-asr', environment: ['MIMO_ASR_MODEL'], extra: true },
+      { key: 'mimoTtsBaseUrl', slot: 'ttsEndpoint', type: 'url', label: '合成服务地址', schemes: ['http:', 'https:'], default: DEFAULT_MIMO_BASE_URL, environment: ['MIMO_TTS_BASE_URL'], extra: true },
+      { key: 'mimoTtsApiKey', slot: 'ttsCredential', type: 'password', label: '合成 API Key', environment: ['MIMO_TTS_API_KEY'], extra: true },
+      { key: 'mimoTtsModel', slot: 'ttsModel', type: 'text', label: '合成模型', default: 'mimo-v2.5-tts', environment: ['MIMO_TTS_MODEL'], extra: true },
     ],
   }),
 ])

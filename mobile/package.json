@@ -1,7 +1,7 @@
 {
   "name": "@qwen-audio-agent/mobile",
   "private": true,
-  "version": "2.0.1",
+  "version": "2.0.2-feishu.1",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
@@ -9,7 +9,7 @@
     "sync": "npm run build && cap sync",
     "ios": "npm run sync && cap open ios",
     "android": "npm run sync && cap open android",
-    "test": "node --test"
+    "test": "node --test --test-concurrency=4"
   },
   "dependencies": {
     "@aparajita/capacitor-secure-storage": "8.0.0",

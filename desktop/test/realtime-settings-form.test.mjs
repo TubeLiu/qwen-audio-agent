@@ -39,8 +39,8 @@ test('model families select independent voice overrides without mutating drafts'
   assert.equal(realtimeSettingsValues().audioRealtimeVoice, '')
 })
 
-test('every provider presents the same four slots in the same order', () => {
-  for (const provider of REALTIME_PROVIDERS) {
+test('existing realtime providers retain the same four slots in the same order', () => {
+  for (const provider of REALTIME_PROVIDERS.filter(provider => provider.key !== 'mimo')) {
     const fields = realtimeSettingsFields(provider, realtimeSettingsValues())
     assert.deepEqual(fields.map(field => field.label), ['服务地址', 'API Key', '模型', '音色'])
     assert.deepEqual(fields.map(field => field.slot), ['endpoint', 'credential', 'model', 'voice'])

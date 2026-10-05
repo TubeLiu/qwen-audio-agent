@@ -35,7 +35,10 @@ const allowedDependencies = {
   ]),
   'frontend-provider': new Set(['core', 'frontend', 'frontend-provider', 'shared']),
   'tool-support': new Set(['tool-support']),
-  'optional-module-assembly': new Set(['memory-entry', 'knowledge-entry']),
+  'optional-module-assembly': new Set(['memory-entry', 'knowledge-entry', 'feishu']),
+  // The added domain is assembled through optional modules. It depends only
+  // on its own implementation and shared asset metadata, never on an Agent.
+  feishu: new Set(['feishu', 'shared']),
   'optional-frontend-assembly': new Set(['memory-entry', 'knowledge-entry']),
   'memory-entry': new Set(['memory', 'memory-entry', 'memory-provider', 'tool-support']),
   'knowledge-entry': new Set(['knowledge', 'knowledge-entry', 'knowledge-provider', 'knowledge-service', 'tool-support']),

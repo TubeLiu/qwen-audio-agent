@@ -269,12 +269,16 @@ h2 {
 
 .settings-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   padding: 4px;
   margin: 0 0 16px;
   border-radius: 12px;
   background: var(--panel);
+}
+
+.feishu-connection-actions {
+  flex-wrap: wrap;
 }
 
 .settings-tab {

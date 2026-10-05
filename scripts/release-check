@@ -56,10 +56,13 @@ for (const workspace of [
 }
 
 const manifest = JSON.parse(readFileSync('package.json', 'utf8'))
-const publicRepository = 'git+https://github.com/QwenAudio/qwen-audio-agent.git'
+const publicRepository = 'git+https://github.com/TubeLiu/qwen-audio-agent.git'
 const publicRegistry = 'https://registry.npmjs.org/'
 if (manifest.repository?.url !== publicRepository) {
   throw new Error('package.json does not point to the public GitHub repository')
+}
+if (manifest.private !== true) {
+  throw new Error('The fork must not publish over the upstream npm package')
 }
 if (manifest.publishConfig?.registry !== publicRegistry) {
   throw new Error('package.json does not force publishing to the public npm registry')

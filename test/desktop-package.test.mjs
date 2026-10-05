@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { parse } from 'yaml'
 import afterPack from '../scripts/desktop-after-pack.mjs'
+import { feishuCliAsset } from '../shared/feishu-cli-assets.mjs'
 
 test('desktop packaging uses the lockfile-pinned Electron instead of a second version', () => {
   const config = parse(readFileSync(new URL('../desktop/electron-builder.yml', import.meta.url), 'utf8'))
@@ -26,12 +27,25 @@ test('afterPack copies the external module without moving its application source
   mkdirSync(join(root, 'shared'))
   const source = join(root, 'shared/runtime-paths.mjs')
   writeFileSync(source, 'export const fixture = true\n')
-  const resources = join(root, 'app/Contents/Resources')
-  await afterPack({ appOutDir: 'app', packager: {
+  const asset = feishuCliAsset('win32', 'x64')
+  const cliSource = join(root, 'vendor/feishu-cli', asset.key)
+  mkdirSync(cliSource, { recursive: true })
+  for (const name of [asset.binary, 'metadata.json', 'LICENSE']) {
+    writeFileSync(join(cliSource, name), `fixture:${name}\n`)
+  }
+  const otherSlice = join(root, 'vendor/feishu-cli/darwin-arm64')
+  mkdirSync(otherSlice, { recursive: true })
+  writeFileSync(join(otherSlice, 'lark-cli'), 'unrelated macOS binary\n')
+  const resources = join(root, 'app/resources')
+  await afterPack({ appOutDir: 'app', electronPlatformName: 'win32', arch: 'x64', packager: {
     projectDir: root,
     getResourcesDir: () => resources,
   } })
   assert.equal(readFileSync(join(resources, 'runtime/shared/runtime-paths.mjs'), 'utf8'), readFileSync(source, 'utf8'))
+  for (const name of [asset.binary, 'metadata.json', 'LICENSE']) {
+    assert.equal(readFileSync(join(resources, 'runtime/feishu-cli', asset.key, name), 'utf8'), readFileSync(join(cliSource, name), 'utf8'))
+  }
+  assert.equal(existsSync(join(resources, 'runtime/feishu-cli/darwin-arm64')), false)
 })
 
 test('release verifies both desktop artifacts before publishing npm', () => {

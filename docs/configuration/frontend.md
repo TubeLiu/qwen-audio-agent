@@ -15,6 +15,7 @@ Put these settings in the `config.env` shown by `qwenaudio config`, or select a 
 | Doubao Seeduplex | `doubao-seeduplex` | `DOUBAO_API_KEY` | Configure its model, voice, and endpoint below |
 | Hugging Face speech-to-speech | `speech-to-speech` | Start the service; default: `ws://127.0.0.1:8765/v1/realtime` | [Local model pipeline](../voice-frontends/speech-to-speech.md) |
 | MiniCPM-o 4.5 | `minicpm-o` | Start the service; default: `ws://127.0.0.1:8006/v1/realtime?mode=audio` | [Audio/video modes and limits](../voice-frontends/minicpm-o.md) |
+| MiMo (TubeLiu fork) | `mimo` | Separate `MIMO_CHAT_API_KEY`, `MIMO_ASR_API_KEY` and `MIMO_TTS_API_KEY` | [MiMo and Feishu](../guides/mimo-feishu.md) |
 
 For the default frontend:
 
@@ -60,6 +61,23 @@ Current built-in DashScope model profiles:
 All profiles support tool calls. Live vision also requires client and transport support; see [Visual Input](../guides/vision.md).
 
 ## Apply and Verify
+
+For MiMo, configure all three independent HTTP APIs. Their complete `/v1`
+addresses are preserved; the adapter does not reroute TokenPlan settings:
+
+```dotenv
+QWEN_AUDIO_REALTIME_PROVIDER=mimo
+MIMO_CHAT_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
+MIMO_CHAT_API_KEY=your-chat-key
+MIMO_CHAT_MODEL=mimo-v2.6-flash
+MIMO_ASR_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
+MIMO_ASR_API_KEY=your-asr-key
+MIMO_ASR_MODEL=mimo-v2.5-asr
+MIMO_TTS_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
+MIMO_TTS_API_KEY=your-tts-key
+MIMO_TTS_MODEL=mimo-v2.5-tts
+MIMO_TTS_VOICE=mimo_default
+```
 
 1. Click Apply in Desktop. For a terminal Gateway, stop and restart it. For an installed background service, run `qwenaudio gateway restart`.
 2. Connect a client and check that the voice frontend is connected.
